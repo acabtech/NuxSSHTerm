@@ -1,0 +1,269 @@
+/* NuxSSHTerm — Windows-faithful chrome.
+   Reference: docs/UI-SPEC.md (derived from Sam's WinSSHTerm screenshot). */
+
+:root {
+  --chrome: #f0f0f0;
+  --chrome-line: #d7d7d7;
+  --panel-bg: #ffffff;
+  --text: #1a1a1a;
+  --text-dim: #6d6d6d;
+  --sel-bg: #cce8ff;
+  --sel-bg-inactive: #e5e5e5;
+  --tabstrip-bg: #e8eef5;
+  --tab-active: #ffffff;
+  --term-bg: #0d1b2a;
+  --term-fg: #d4d4d4;
+  --accent: #0a66c2;
+  --menu-hl: #cce8ff;
+  font-family: "Segoe UI", "Noto Sans", "DejaVu Sans", system-ui, sans-serif;
+  font-size: 13px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--chrome);
+  color: var(--text);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ---------------- Menu bar + quick strip ---------------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  background: var(--chrome);
+  border-bottom: 1px solid var(--chrome-line);
+  height: 26px;
+  flex: 0 0 auto;
+}
+
+.menubar { display: flex; align-items: center; height: 100%; }
+
+.menubar-item {
+  padding: 0 9px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+}
+.menubar-item:hover, .menubar-item.open { background: var(--menu-hl); }
+
+.quickstrip {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 6px;
+}
+
+.qs-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 1px 8px;
+  font: inherit;
+  cursor: default;
+  color: var(--text);
+  border-radius: 2px;
+}
+.qs-btn:hover { background: #e2e8ef; border-color: #c8d2dc; }
+.qs-sep { width: 1px; height: 16px; background: var(--chrome-line); margin: 0 4px; }
+
+/* dropdown menus */
+.menu-pop {
+  position: fixed;
+  z-index: 500;
+  min-width: 210px;
+  background: #fafafa;
+  border: 1px solid #a0a0a0;
+  box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.25);
+  padding: 3px 0;
+}
+.menu-entry {
+  padding: 4px 22px 4px 24px;
+  cursor: default;
+  white-space: nowrap;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+.menu-entry:hover { background: var(--menu-hl); }
+.menu-entry.disabled { color: #a0a0a0; }
+.menu-entry .hint { color: var(--text-dim); font-size: 11px; }
+.menu-divider { height: 1px; background: #dcdcdc; margin: 3px 0; }
+
+/* ---------------- Body: left panels + document area ---------------- */
+
+.body { display: flex; flex: 1 1 auto; min-height: 0; }
+
+.leftcol {
+  width: 320px;
+  min-width: 200px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--chrome);
+  border-right: 1px solid var(--chrome-line);
+}
+
+.panel { display: flex; flex-direction: column; min-height: 0; background: var(--panel-bg); }
+.panel-conn { flex: 0 0 66%; border-bottom: 2px solid var(--chrome); }
+.panel-config { flex: 1 1 auto; }
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  background: linear-gradient(#fdfdfd, #eef2f6);
+  border-bottom: 1px solid var(--chrome-line);
+  padding: 2px 6px;
+  font-size: 12px;
+  color: #333;
+  flex: 0 0 auto;
+}
+.panel-title .spacer { flex: 1 1 auto; }
+.panel-title .pbtn {
+  border: none; background: transparent; cursor: default; color: #555;
+  padding: 0 4px; font-size: 12px; line-height: 1;
+}
+.panel-title .pbtn:hover { color: #000; background: #dbe4ee; }
+
+.panel-toolbar {
+  display: flex; align-items: center; gap: 1px;
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--chrome-line);
+  background: #f7f9fb;
+  flex: 0 0 auto;
+}
+.tbtn {
+  border: 1px solid transparent; background: transparent; cursor: default;
+  width: 22px; height: 20px; line-height: 1; font-size: 12px; color: #444;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.tbtn:hover { background: #e2e8ef; border-color: #c8d2dc; }
+.tbtn:disabled { color: #b8b8b8; }
+
+/* ---------------- Session tree ---------------- */
+
+.tree { flex: 1 1 auto; overflow: auto; background: var(--panel-bg); padding: 2px 0; }
+.tree-row {
+  display: flex; align-items: center; gap: 4px;
+  padding: 1px 6px 1px 0;
+  white-space: nowrap; cursor: default;
+  min-height: 19px;
+}
+.tree-row:hover { background: #f2f7fc; }
+.tree-row.selected { background: var(--sel-bg); }
+.tree-row .caret {
+  width: 13px; flex: 0 0 13px; text-align: center;
+  color: #555; font-size: 9px; user-select: none;
+}
+.tree-row .caret.spacer { visibility: hidden; }
+.tree-row .label { overflow: hidden; text-overflow: ellipsis; }
+.tree-row .label.unresolved { color: #8a6d3b; }
+.tree-row .ico { flex: 0 0 16px; display: inline-flex; align-items: center; }
+
+/* ---------------- Configuration (property grid) ---------------- */
+
+.prop-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 6px; border-bottom: 1px solid var(--chrome-line);
+  background: #fbfcfd; flex: 0 0 auto;
+}
+.prop-header select { font: inherit; padding: 1px 2px; }
+
+.props { flex: 1 1 auto; overflow: auto; }
+.prop-row { display: flex; border-bottom: 1px solid #f0f0f0; min-height: 21px; }
+.prop-label {
+  flex: 0 0 108px; padding: 2px 6px; color: #2b2b2b; background: #fbfbfb;
+  border-right: 1px solid #ececec; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 12px;
+}
+.prop-value { flex: 1 1 auto; display: flex; }
+.prop-value input, .prop-value select {
+  border: none; outline: none; width: 100%; font: inherit;
+  padding: 2px 4px; background: transparent; color: var(--text);
+}
+.prop-value input:focus { background: #fffbe6; }
+.prop-empty { padding: 10px; color: var(--text-dim); font-size: 12px; }
+
+/* ---------------- Document area: tabs + terminal ---------------- */
+
+.docarea { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; background: var(--chrome); }
+
+.tabstrip {
+  display: flex; align-items: flex-end; gap: 2px;
+  background: var(--tabstrip-bg);
+  border-bottom: 1px solid var(--chrome-line);
+  padding: 3px 4px 0 4px;
+  flex: 0 0 auto; min-height: 25px;
+  overflow-x: auto;
+}
+.tab {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 8px; background: #f4f7fa;
+  border: 1px solid #c9d3dd; border-bottom: none;
+  border-radius: 3px 3px 0 0;
+  cursor: default; white-space: nowrap; max-width: 220px;
+  font-size: 12px; color: #333;
+}
+.tab.active { background: var(--tab-active); color: #111; font-weight: 600; padding-bottom: 4px; }
+.tab .tab-close { color: #666; font-size: 11px; padding: 0 2px; border-radius: 2px; }
+.tab .tab-close:hover { background: #d9534f; color: #fff; }
+.tab .tab-dot { width: 7px; height: 7px; border-radius: 50%; background: #3aa757; flex: 0 0 7px; }
+.tab .tab-dot.pending { background: #d9a441; }
+.tab .tab-dot.dead { background: #b0b0b0; }
+.tab-add {
+  border: 1px solid #c9d3dd; background: #f4f7fa; border-bottom: none;
+  border-radius: 3px 3px 0 0; padding: 3px 8px; cursor: default; color: #555;
+}
+
+.term-area { flex: 1 1 auto; min-height: 0; position: relative; background: var(--term-bg); }
+.term-pane { position: absolute; inset: 0; padding: 2px 0 2px 4px; }
+.term-pane.hidden { visibility: hidden; }
+.term-missing { color: #d0d0d0; padding: 14px; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.6; }
+.workspace-hint { padding: 22px; color: #8b9bb0; font-size: 12px; }
+
+/* ---------------- Status bar ---------------- */
+
+.statusbar {
+  display: flex; align-items: center; gap: 0;
+  background: var(--chrome); border-top: 1px solid var(--chrome-line);
+  height: 22px; font-size: 12px; color: #333; flex: 0 0 auto;
+}
+.statusbar .cell { padding: 0 8px; border-right: 1px solid var(--chrome-line); white-space: nowrap; }
+.statusbar .cell.grow { flex: 1 1 auto; border-right: none; }
+.statusbar .cell.ok { color: #1d7a3d; }
+.statusbar .cell.warn { color: #9a6a00; }
+
+/* ---------------- Modal ---------------- */
+
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+  display: flex; align-items: center; justify-content: center; z-index: 900;
+}
+.modal {
+  background: var(--chrome); border: 1px solid #999;
+  box-shadow: 0 6px 22px rgba(0,0,0,0.35); min-width: 420px; max-width: 640px;
+}
+.modal h3 { margin: 0; padding: 8px 10px; font-size: 13px; background: linear-gradient(#fff,#eef2f6); border-bottom: 1px solid var(--chrome-line); }
+.modal .modal-body { padding: 12px; background: #fff; }
+.modal .modal-body input[type=text], .modal .modal-body input[type=password] {
+  width: 100%; font: inherit; padding: 4px 6px; border: 1px solid #a9b3bd;
+}
+.modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 10px; background: var(--chrome); }
+.btn { font: inherit; padding: 4px 14px; border: 1px solid #a9b3bd; background: linear-gradient(#fff,#eef2f6); cursor: default; }
+.btn:hover { background: linear-gradient(#fff,#e2ecf6); }
+.btn.primary { border-color: #0a66c2; }
+.muted { color: var(--text-dim); font-size: 12px; }
+.mono { font-family: ui-monospace, "DejaVu Sans Mono", monospace; font-size: 12px; }

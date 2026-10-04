@@ -1,0 +1,110 @@
+//! SSH launch specification and command-line construction.
+//!
+//! v0.1 uses the system OpenSSH client over a PTY. This means we inherit everything
+//! the user already has: ~/.ssh/config, ssh-agent, known_hosts, jump hosts, X11.
+
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LaunchSpec {
+    pub host: String,
+    #[serde(default = "default_port")]
+    pub port: u16,
+    #[serde(default)]
+    pub username: String,
+    #[serde(default)]
+    pub private_key: String,
+    #[serde(default)]
+    pub x11: bool,
+    #[serde(default)]
+    pub forward_agent: bool,
+    #[serde(default)]
+    pub extra_args: Vec<String>,
+    /// Raw WinSSHTerm proxy settings, mapped onto ssh -o ProxyCommand where possible.
+    #[serde(default)]
+    pub proxy_enabled: bool,
+    #[serde(default)]
+    pub proxy_type: String,
+    #[serde(default)]
+    pub proxy_host: String,
+    #[serde(default)]
+    pub proxy_port: String,
+    #[serde(default)]
+    pub proxy_telnet_cmd: String,
+}
+
+fn default_port() -> u16 {
+    22
+}
+
+impl LaunchSpec {
+    /// Build the `ssh` argv for this spec (program name excluded).
+    pub fn ssh_args(&self) -> Vec<String> {
+        let mut args: Vec<String> = Vec::new();
+        if self.port != 0 && self.port != 22 {
+            args.push("-p".into());
+            args.push(self.port.to_string());
+        }
+        if !self.username.is_empty() {
+            args.push("-l".into());
+            args.push(self.username.clone());
+        }
+        if !self.private_key.is_empty() {
+            args.push("-i".into());
+            args.push(self.private_key.clone());
+        }
+        if self.x11 {
+            // -Y is the pragmatic choice for a desktop client; PuTTY's equivalent
+            // ("enable X11 forwarding") behaves like -X but most users expect -Y.
+            args.push("-Y".into());
+        }
+        if self.forward_agent {
+            args.push("-o".into());
+            args.push("ForwardAgent=yes".into());
+        }
+        if self.proxy_enabled {
+            if let Some(pc) = self.proxy_command() {
+                args.push("-o".into());
+                args.push(format!("ProxyCommand={pc}"));
+            }
+        }
+        for extra in &self.extra_args {
+            if !extra.trim().is_empty() {
+                args.push(extra.clone());
+            }
+        }
+        args.push(self.host.clone());
+        args
+    }
+
+    /// Map WinSSHTerm proxy types onto an OpenSSH ProxyCommand.
+    /// Requires `nc` (netcat) for SOCKS/HTTP — flagged in the UI when missing.
+    fn proxy_command(&self) -> Option<String> {
+        let hostport = format!("{}:{}", self.proxy_host, self.proxy_port);
+        match self.proxy_type.to_ascii_uppercase().as_str() {
+            "SOCKS4" => Some(format!("nc -X 4 -x {hostport} %h %p")),
+            "SOCKS5" => Some(format!("nc -X 5 -x {hostport} %h %p")),
+            "HTTP" => Some(format!("nc -X connect -x {hostport} %h %p")),
+            // "Local" = a custom telnet/command proxy; WinSSHTerm stores the raw command.
+            "LOCAL" => {
+                let cmd = self.proxy_telnet_cmd.trim();
+                if cmd.is_empty() {
+                    None
+                } else {
+                    Some(cmd.replace("%host", "%h").replace("%port", "%p"))
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Human-readable one-liner, shown in the tab tooltip / status bar.
+    pub fn display_target(&self) -> String {
+        let user = if self.username.is_empty() {
+            "?".to_string()
+        } else {
+            self.username.clone()
+        };
+        format!("{user}@{}:{}", self.host, self.port)
+    }
+}
