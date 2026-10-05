@@ -5,6 +5,7 @@ import { SessionTree, type TreeCallbacks } from "./components/SessionTree";
 import { StatusBar } from "./components/StatusBar";
 import { TabStrip } from "./components/TabStrip";
 import { TerminalView } from "./components/TerminalView";
+import { ImportWizard } from "./components/ImportWizard";
 import { ToastStack } from "./components/Toast";
 import { VaultModal, type VaultModalKind } from "./components/VaultModal";
 import { useSessionTree } from "./hooks/useSessionTree";
@@ -16,7 +17,8 @@ import { emptyNode, type SessionNode } from "./types";
 import { applyPasswords, clearPasswords, getAt, insertAt, pathKey } from "./lib/tree";
 
 type Modal =
-  | { kind: "path"; action: "import" | "export"; title: string; value: string }
+  | { kind: "path"; action: "export"; title: string; value: string }
+  | { kind: "import-sessions" }
   | { kind: "info"; title: string; message: string }
   | { kind: "vault-init" }
   | { kind: "vault-unlock" }
@@ -66,7 +68,6 @@ export default function App() {
     duplicateSelected,
     deleteSelected,
     expandAll,
-    runImport,
     runExport,
   } = treeApi;
 
@@ -146,20 +147,21 @@ export default function App() {
     [vaultStatus.unlocked, selectedPath, tree, vaultPutPassword, updateNode, notify],
   );
 
-  const handleImport = useCallback(
-    async (path: string) => {
-      const res = await runImport(path);
-      if (res.ok) {
-        setModal({
-          kind: "info",
-          title: "Import complete",
-          message: `Imported ${res.count} top-level entries from:\n${res.path}\n\nThey are shown in the Connections panel and saved to the local config folder.`,
-        });
-      } else {
-        setModal({ kind: "info", title: "Import failed", message: res.error ?? "Unknown error" });
+  // Settings import is now the Phase 2 wizard: preview → map → merge/save.
+  const handleImportSessions = useCallback(
+    (nodes: SessionNode[], summary: { count: number; format: string; warnings: string[]; merge: boolean }) => {
+      setTree((t) => (summary.merge ? [...t, ...nodes] : nodes));
+      setSelectedPath(null);
+      setModal(null);
+      notify(
+        `Imported ${summary.count} session(s) from ${summary.format}` +
+          (summary.merge ? " — appended to the tree" : " — replaced the tree"),
+      );
+      for (const w of summary.warnings.slice(0, 4)) {
+        notify(w, "error");
       }
     },
-    [runImport],
+    [setTree, notify],
   );
 
   const handleExport = useCallback(
@@ -214,13 +216,7 @@ export default function App() {
         configDir,
         selected,
         selectedPath,
-        onImport: () =>
-          setModal({
-            kind: "path",
-            action: "import",
-            title: "Import WinSSHTerm connections / settings",
-            value: "/home/sam/winsshterm-import/connections.xml",
-          }),
+        onImport: () => setModal({ kind: "import-sessions" }),
         onExport: () =>
           setModal({
             kind: "path",
@@ -495,13 +491,13 @@ export default function App() {
                   if (e.key === "Enter") {
                     const v = modal.value;
                     setModal(null);
-                    void (modal.action === "import" ? handleImport(v) : handleExport(v));
+                    void handleExport(v);
                   }
                 }}
               />
               <p className="muted" style={{ marginBottom: 0 }}>
-                Path on this machine. WinSSHTerm writes <span className="mono">connections.xml</span> /
-                <span className="mono"> WinSSHTerm.settings</span>.
+                Path on this machine. The export is written in the WinSSHTerm
+                <span className="mono">connections.xml</span> format.
               </p>
             </div>
             <div className="modal-actions">
@@ -511,14 +507,23 @@ export default function App() {
                 onClick={() => {
                   const v = modal.value;
                   setModal(null);
-                  void (modal.action === "import" ? handleImport(v) : handleExport(v));
+                  void handleExport(v);
                 }}
               >
-                {modal.action === "import" ? "Import" : "Export"}
+                Export
               </button>
             </div>
           </div>
         </div>
+      )}
+
+      {modal && modal.kind === "import-sessions" && (
+        <ImportWizard
+          initialPath="/home/sam/winsshterm-import/connections.xml"
+          vaultUnlocked={vaultStatus.unlocked}
+          onClose={() => setModal(null)}
+          onImport={handleImportSessions}
+        />
       )}
 
       {modal && modal.kind === "info" && (

@@ -81,7 +81,7 @@ struct Proxy { kind: ProxyKind, host: String, port: u16, user: Option<String>, t
 - **On-disk format** (`vault.bin`): `[magic "NXVAULT1"][16-byte salt][12-byte nonce][AES-256-GCM
   ciphertext]`. The plaintext is JSON `{ sessions_with_passwords, imported_ppk_map }` where
   `sessions_with_passwords` maps a session path key (ancestor names joined by `/`) to its password,
-  and `imported_ppk_map` will hold `.ppk → .pem` conversions (Phase 2).
+  and `imported_ppk_map` holds `.ppk → .pem` conversions recorded by the import wizard (Phase 2).
 - **Key derivation**: `Argon2id(master password, salt, m=64 MiB, t=3, p=4)` → 32-byte AES key
   (`src-tauri/src/vault.rs`). The salt is embedded in the file header so the key can be re-derived
   on unlock. The master password is **never stored**.
@@ -96,15 +96,33 @@ struct Proxy { kind: ProxyKind, host: String, port: u16, user: Option<String>, t
   Configuration panel are written to the vault via `vault_put_password`. The status bar shows
   `vault: unset | locked | unlocked`.
 
-## Importer (built against real schema; user's files arrive later)
+## Importer (Phase 2, shipped in v0.2.1)
 
-1. `WinSSHTerm.settings` / `connections.xml` — XML parser for the Node tree above (tolerant:
-   unknown attrs ignored, nested Containers, base64 decode errors fall back to raw name).
-2. PuTTY `.reg` export (`regedit /e putty.reg HKCU\Software\SimonTatham\PuTTY`) + also accepts
-   `.txt` (KiTTY-style `Key\value` lines). Handles `%XX` unescape, skips `WinSSHTerm`/`WinSSHTerm_ScriptRunner`.
-3. (v0.2) `.kdbx` via `keepassxc-cli export` — map titles+URLs to hosts.
-4. Wizard UI: file pickers → preview tree → per-item mapping (host/user/port/key) → import into
-   native store; .ppk files converted on the spot via puttygen → `~/.ssh/`.
+`File → Import…` opens the **import wizard**, which sniffs the file and drives the whole flow:
+
+1. **Format detection** (`src-tauri/src/importcmd.rs`): `.kdbx` (binary; needs `keepassxc-cli`),
+   then content sniffing — `<?xml`/`<WinSSHTerm`/`<Node` → WinSSHTerm XML; otherwise PuTTY.
+   Text is decoded from UTF-8 (with/without BOM) or UTF-16LE/BE (regedit's native encoding).
+2. **WinSSHTerm `connections.xml` / `.settings`** — quick-xml parser for the Node tree above
+   (tolerant: unknown attrs ignored, nested Containers, base64 decode errors fall back to raw
+   name). Passwords are separated into the vault payload and stripped from the preview/save.
+3. **PuTTY `.reg`** (`regedit /e putty.reg HKCU\Software\SimonTatham\PuTTY`) and **KiTTY `.txt`**
+   (`Session\<path>\key=value` lines) — `src-tauri/src/putty.rs`. Handles `%XX` unescape of
+   session names, builds folder containers from backslash paths, maps
+   `HostName/PortNumber/UserName/PublicKeyFile/DetachedCertificate/X11Forwarding` and the proxy
+   set (`ProxyMethod` 1=SOCKS4, 2=SOCKS5, 3=HTTP, 5=Local, `ProxyHost/Port/Username/ProxyTelnetCommand`),
+   and skips `WinSSHTerm`/`WinSSHTerm_ScriptRunner` sessions.
+4. **`.kdbx` via `keepassxc-cli export -f xml`** (`src-tauri/src/kdbx.rs`) — maps group titles →
+   folders and entry `Title/URL/UserName/Password` → sessions. Entries without a URL are skipped
+   (warned); passwords are returned for the vault. Password-protected databases produce a
+   guidance warning (use KeePassXC's manual XML export).
+5. **Wizard UI** (`src/components/ImportWizard.tsx`): path + **Scan** → preview tree with
+   checkboxes, per-session overrides (host/user/port/key) and a **warnings** banner (absolute
+   Windows `C:\…` key paths, unsupported proxy methods, skipped kdbx entries). **Import**
+   converts every `.ppk` key via `puttygen <key>.ppk -O private-openssh -o <cfg>/imported/<stem>.pem`
+   (originals untouched, output chmod 600), then **merges** into the native store (or replaces it),
+   saves, and — while the vault is unlocked — stores passwords (`vault_put_password`) and records
+   conversions in the vault's `imported_ppk_map` (`vault_put_ppk_import`).
 
 ## Terminal engine
 
@@ -204,6 +222,7 @@ One persistent `sftp` child per commander tab, batch mode (stdin commands, no pr
 ## Roadmap
 
 - **v0.1**: 4 must-haves + session tree/tabs (shipped).
-- **v0.2**: encrypted vault (shipped), PuTTY `.reg`/`.ppk` import, SFTP commander, key manager,
-  quick-launch bar, tray, search/filter, russh in-process, jump-host editor, kdbx.
+- **v0.2**: encrypted vault (shipped in v0.2.0), PuTTY `.reg`/`.txt` + `.ppk` import and the
+  import wizard (shipped in v0.2.1), SFTP commander, key manager, quick-launch bar, tray,
+  search/filter, russh in-process, jump-host editor, `.kdbx` (best-effort via keepassxc-cli).
 - **v0.3**: scripts/automation (LaunchTools-style), multi-tab session grouping, session sync.

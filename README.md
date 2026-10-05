@@ -11,12 +11,13 @@ emulation: it uses the system OpenSSH client over a PTY.
 
 ## Status
 
-**v0.1 — shell / parity milestone.** This is a working early build: the UI
-mirrors WinSSHTerm's layout and the session model matches the real WinSSHTerm
-`connections.xml` schema, but several advanced features are still upcoming (see
-Roadmap).
+**v0.2 — vault + import milestone.** The shell/parity UI is in place (created
+in v0.1), the encrypted password vault shipped in v0.2.0, and the full settings
+import story (PuTTY `.reg`/KiTTY `.txt`/WinSSHTerm XML/KeePass `.kdbx`, plus
+`.ppk` key conversion) in v0.2.1. SFTP commander and the Pageant-equivalent key
+manager are next (see Roadmap).
 
-## What's here (v0.1)
+## What's here (v0.2)
 
 - **Tabbed terminal workspace** — multiple SSH sessions in tabs, with the
   WinSSHTerm-style window chrome (menu bar, quick strip, status bar).
@@ -27,8 +28,15 @@ Roadmap).
   settings map onto OpenSSH options.
 - **Configuration panel** — edit connection attributes (host, port, user, key,
   X11, proxy, login commands) per host.
-- **WinSSHTerm settings import / export** — read and write WinSSHTerm
-  `connections.xml` / `.settings` (schema verified against `Migrate2WinSSHTerm`
+- **Encrypted password vault** — Argon2id + AES-256-GCM `vault.bin` under
+  `~/.config/nuxsshterm/`; first-run wizard, unlock on start, lock/reset;
+  passwords are never written to `connections.xml`.
+- **Settings import wizard** — File → Import… scans PuTTY `.reg` (UTF-16LE),
+  KiTTY `.txt`, WinSSHTerm `connections.xml`/`.settings`, and KeePass `.kdbx`;
+  previews sessions with per-item mapping, warns on Windows key paths, converts
+  `.ppk` keys via `puttygen` (originals untouched), then merges into the tree.
+- **Settings export** — write the tree back out in WinSSHTerm
+  `connections.xml` format (schema verified against `Migrate2WinSSHTerm`
   v0.23), so an existing Windows setup can be carried across.
 - **Local persistence** — session tree stored under
   `~/.config/nuxsshterm/` in the native WinSSHTerm XML format.
@@ -79,13 +87,12 @@ Bundles are written to `src-tauri/target/release/bundle/`:
 
 ## Roadmap (upcoming)
 
-- **Master password & encrypted vault** — carry stored passwords across from
-  WinSSHTerm.
 - **Copy Files (SFTP) commander** — the dual-pane WinSCP-style UI
   (F5/F6/F7/F8), per-session.
-- **SSH key manager (Pageant equivalent)** — list/add/remove keys, convert
-  `.ppk` → `.pem` automatically.
-- **Console options**, tray icon, and further WinSSHTerm parity.
+- **SSH key manager (Pageant equivalent)** — list/add/remove keys, with
+  automatic `.ppk` conversion (both half-managed via `puttygen` already).
+- **Quick-launch bar, tray icon, session reconnect, system theme**, and further
+  WinSSHTerm parity.
 
 ## Project docs
 

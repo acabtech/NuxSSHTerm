@@ -3,11 +3,14 @@
 mod log;
 mod model;
 mod pty;
+mod putty;
 mod seed;
 mod ssh;
 mod store;
 mod vault;
 mod xml;
+mod kdbx;
+mod importcmd;
 
 use model::Node;
 
@@ -79,6 +82,12 @@ pub fn run() {
             vault::vault_get_passwords,
             vault::vault_put_password,
             vault::vault_remove_password,
+            vault::vault_get_ppk_map,
+            vault::vault_put_ppk_import,
+            importcmd::import_sessions_file,
+            importcmd::puttygen_available,
+            importcmd::convert_ppk,
+            kdbx::keepassxc_available,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

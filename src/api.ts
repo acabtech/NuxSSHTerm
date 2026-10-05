@@ -11,6 +11,34 @@ export const importConnectionsFile = (path: string) =>
 export const exportConnectionsFile = (path: string, tree: SessionNode[]) =>
   invoke<void>("export_connections_file", { path, tree });
 
+// ---- Phase 2: sessions + keys import wizard ----
+export interface ImportPreview {
+  format: string;
+  count: number;
+  /** preview tree — passwords already stripped (they travel in `passwords`) */
+  nodes: SessionNode[];
+  /** path key (ancestor names joined by "/") -> password, for the vault */
+  passwords: Record<string, string>;
+  warnings: string[];
+}
+export interface ConvertedKey {
+  original: string;
+  converted: string;
+  /** true when the target .pem already existed (no puttygen run) */
+  was_already: boolean;
+}
+export const importSessionsFile = (path: string) =>
+  invoke<ImportPreview>("import_sessions_file", { path });
+export const puttygenAvailable = () => invoke<boolean>("puttygen_available");
+export const convertPpk = (source: string) =>
+  invoke<ConvertedKey>("convert_ppk", { source });
+export const keepassxcAvailable = () => invoke<boolean>("keepassxc_available");
+
+// ppk conversion log stored inside the vault
+// export const vaultGetPpkMap = () => invoke<Record<string, string>>("vault_get_ppk_map");
+export const vaultPutPpkImport = (original: string, converted: string) =>
+  invoke<void>("vault_put_ppk_import", { original, converted });
+
 // ---- Encrypted vault (Phase 1) ----
 export interface VaultStatus {
   initialized: boolean;

@@ -253,6 +253,35 @@ pub fn vault_remove_password(state: State<'_, VaultState>, path: String) -> Resu
     save(&state)
 }
 
+/// Return all recorded `.ppk` → `.pem` conversions (original path -> converted path).
+#[tauri::command]
+pub fn vault_get_ppk_map(
+    state: State<'_, VaultState>,
+) -> Result<HashMap<String, String>, String> {
+    let inner = state.0.lock().unwrap();
+    if !inner.unlocked() {
+        return Err("vault is locked".into());
+    }
+    Ok(inner.blob.imported_ppk_map.clone())
+}
+
+/// Record a `.ppk` → `.pem` conversion (Phase 2 import) and persist the vault.
+#[tauri::command]
+pub fn vault_put_ppk_import(
+    state: State<'_, VaultState>,
+    original: String,
+    converted: String,
+) -> Result<(), String> {
+    {
+        let mut inner = state.0.lock().unwrap();
+        if !inner.unlocked() {
+            return Err("vault is locked".into());
+        }
+        inner.blob.imported_ppk_map.insert(original, converted);
+    }
+    save(&state)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

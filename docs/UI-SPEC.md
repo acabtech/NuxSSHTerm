@@ -130,6 +130,22 @@ v0.1: render the strip for fidelity; wire `Paste` only. Others are placeholders.
 - While unlocked, editing a session's Password in the Configuration panel persists it to the
   encrypted vault; the note under the property grid reflects the current state.
 
+## 5d. Import wizard (v0.2.1)
+
+- **File → Import…** opens the import wizard (replaces the old plain-path import modal):
+  a path box + **Scan** → the backend sniffs the file (PuTTY `.reg` — UTF-16LE/UTF-8 with
+  `%XX` names; KiTTY `.txt`; WinSSHTerm `connections.xml`/`.settings`; KeePass `.kdbx` via
+  `keepassxc-cli`) and returns a preview + warnings.
+- **Preview table** (tree-flattened, indented): checkbox per row, folder checkboxes cascade to
+  their sessions; per-session inline edits for Host / User / Port / Private key.
+- **Warnings banner** (amber): absolute Windows `C:\…` key paths, unsupported `ProxyMethod`,
+  skipped kdbx entries, missing `puttygen`/`keepassxc-cli`.
+- **Vault note** (blue): how many source passwords were found and whether the (unlocked/ locked)
+  vault will store them — passwords are never shown in the preview.
+- **Import**: `.ppk` keys are converted on the spot via `puttygen -O private-openssh` into
+  `<config>/imported/` (600; originals untouched); sessions merge into the tree (default) or
+  replace it, then save; passwords + `.ppk` mappings go into the vault when unlocked.
+
 ## 6. Theme
 
 Windows-native look: `#f0f0f0` chrome, `#ffffff` panels, `#000000` text, `#e8eef5` tab-strip tint,

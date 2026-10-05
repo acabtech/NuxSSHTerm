@@ -282,6 +282,79 @@ html, body, #root {
   border-top: 1px solid #ece3c8;
 }
 
+/* ---------------- Import wizard (Phase 2) ---------------- */
+
+.import-modal { min-width: 620px; max-width: 920px; }
+.import-path-row { display: flex; gap: 6px; align-items: center; }
+.import-path-row input {
+  flex: 1 1 auto;
+  font: inherit;
+  padding: 4px 6px;
+  border: 1px solid #a9b3bd;
+}
+.import-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  border-top: 1px solid #e3e6ea;
+  margin-top: 8px;
+}
+.import-meta .spacer { flex: 1 1 auto; }
+.import-warnings {
+  margin: 6px 0;
+  padding: 6px 8px;
+  background: #fdf6e9;
+  border: 1px solid #e6d9b0;
+  color: #7a5c00;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.import-passwords-note {
+  margin: 6px 0;
+  padding: 4px 8px;
+  background: #eef4fd;
+  border: 1px solid #c8daf2;
+  color: #3b5f8f;
+  font-size: 12px;
+}
+.import-error { color: #c0392b; }
+
+.import-preview {
+  display: grid;
+  grid-template-columns: 22px auto 1fr 1fr 64px 1.4fr;
+  gap: 2px 6px;
+  max-height: 300px;
+  overflow: auto;
+  border: 1px solid #dfe2e6;
+  background: #fff;
+  font-size: 12px;
+}
+.import-preview .head { background: #eef1f5; font-weight: 600; }
+.import-row { display: contents; }
+.import-row > input[type="checkbox"] { width: auto; margin: 0; }
+.import-row > input[type="text"], .import-row > input:not([type]) {
+  font: inherit;
+  padding: 1px 4px;
+  border: 1px solid transparent;
+}
+.import-row > input:hover, .import-row > input:focus { border-color: #a9b3bd; }
+.import-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 110px;
+}
+.import-row.folder { display: contents; }
+.import-row.folder .import-name { font-weight: 600; color: #2b2b2b; }
+.import-merge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+
 /* ---------------- Toast / notification stack ---------------- */
 
 .toast-stack {

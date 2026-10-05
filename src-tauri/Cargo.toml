@@ -1,6 +1,6 @@
 [package]
 name = "nuxsshterm"
-version = "0.2.0"
+version = "0.2.1"
 description = "A tabbed SSH solution for Linux — a native reimplementation of WinSSHTerm"
 authors = ["Sam Ralial"]
 edition = "2024"
