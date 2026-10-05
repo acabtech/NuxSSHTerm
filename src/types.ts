@@ -51,7 +51,7 @@ export interface LaunchSpec {
 }
 
 export interface Tab {
-  /** unique tab id, also the pty session id */
+  /** unique tab id, also the pty/sftp session id */
   id: string;
   title: string;
   /** "terminal" | "commander" */
@@ -59,6 +59,8 @@ export interface Tab {
   spec: LaunchSpec;
   target: string;
   exited: boolean;
+  /** vault password for the commander's sftp child (memory only, never saved) */
+  password?: string;
 }
 
 export function emptyNode(name: string, type: NodeType): SessionNode {

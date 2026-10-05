@@ -1,16 +1,18 @@
 //! NuxSSHTerm — Tauri backend.
 
+mod importcmd;
+mod kdbx;
+mod local_fs;
 mod log;
 mod model;
 mod pty;
 mod putty;
 mod seed;
+mod sftp;
 mod ssh;
 mod store;
 mod vault;
 mod xml;
-mod kdbx;
-mod importcmd;
 
 use model::Node;
 
@@ -63,6 +65,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(pty::PtyState::default())
         .manage(vault::VaultState::default())
+        .manage(sftp::SftpState::default())
         .invoke_handler(tauri::generate_handler![
             load_tree,
             save_tree,
@@ -88,6 +91,17 @@ pub fn run() {
             importcmd::puttygen_available,
             importcmd::convert_ppk,
             kdbx::keepassxc_available,
+            sftp::sftp_open,
+            sftp::sftp_close,
+            sftp::sftp_list,
+            sftp::sftp_op,
+            local_fs::home_dir,
+            local_fs::local_list,
+            local_fs::local_mkdir,
+            local_fs::local_rmdir,
+            local_fs::local_rm,
+            local_fs::local_rename,
+            local_fs::local_remove,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

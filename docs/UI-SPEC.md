@@ -146,6 +146,35 @@ v0.1: render the strip for fidelity; wire `Paste` only. Others are placeholders.
   `<config>/imported/` (600; originals untouched); sessions merge into the tree (default) or
   replace it, then save; passwords + `.ppk` mappings go into the vault when unlocked.
 
+## 5e. SFTP commander (v0.3.0)
+
+WinSCP "commander view" parity, opened per session via **right-click → Copy
+Files** (or Navigate → Copy Files). One commander tab per open; it shares the
+tab strip with terminals (`Terminal (SFTP)` suffix in the tab title).
+
+- **Dual panes**: `Local` (left) and `Remote — user@host` (right), each with a
+  title bar, an editable **path bar** (Enter to navigate, ⬆ up button),
+  column headers (Name / Size / Modified), and a scrollable listing.
+  Focused pane gets a blue border; click a row to select (single-select,
+  WinSCP-style multi-select is deferred).
+- **Listing**: folders first (📁), then files (📄) and symlinks (🔗), sorted by
+  name. The `..` row navigates up. Columns: perms (tooltip), size (humanised;
+  blank for folders), server-side mtime/perms string for remote, local
+  `YYYY-MM-DD HH:MM` for local.
+- **Toolbars** per pane: 📁+ new folder, 🗑 delete, ℹ properties.
+- **Keybindings** (focused pane): **F5** copy to the other pane, **F6** move
+  (copy then delete source — WinSCP semantics), **F7** mkdir, **F8** delete
+  (folders recursive, with confirm), **F9** properties, **Ctrl+U** swap active
+  pane, **Ctrl+R** refresh, **Ctrl+T** open a terminal tab to the same host,
+  **Enter** open folder, **Backspace** parent dir.
+- **Properties modal (F9)**: type, path, perms, size, owner:group, modified;
+  remote files get a **chmod…** action (numeric mode).
+- **Transfer progress strip**: bottom bar with an activity dot while a
+  transfer runs + the current operation text (“Downloading X…”); file-level
+  only in v0.1 (byte-level progress arrives with the russh engine, Phase 6).
+- **Deletions** of remote folders run a depth-first walk over the persistent
+  sftp child (`rm` files / `rmdir` dirs — OpenSSH sftp has no `rm -r`).
+
 ## 6. Theme
 
 Windows-native look: `#f0f0f0` chrome, `#ffffff` panels, `#000000` text, `#e8eef5` tab-strip tint,

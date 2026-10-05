@@ -5,6 +5,7 @@ import { SessionTree, type TreeCallbacks } from "./components/SessionTree";
 import { StatusBar } from "./components/StatusBar";
 import { TabStrip } from "./components/TabStrip";
 import { TerminalView } from "./components/TerminalView";
+import { CommanderView } from "./components/CommanderView";
 import { ImportWizard } from "./components/ImportWizard";
 import { ToastStack } from "./components/Toast";
 import { VaultModal, type VaultModalKind } from "./components/VaultModal";
@@ -78,6 +79,8 @@ export default function App() {
     setActiveTab,
     currentTab,
     openSession,
+    openCommander,
+    openTerminalFromSpec,
     openLocalShell,
     closeTab,
     closeOthers,
@@ -249,14 +252,9 @@ export default function App() {
         onConnect: () => {
           if (selected) openSessionChecked(selected);
         },
-        onCopyFiles: () =>
-          setModal({
-            kind: "info",
-            title: "Copy Files / SFTP commander",
-            message:
-              "The dual-pane commander (WinSCP-style, F5/F6/F7/F8) is the next " +
-              "milestone. The session model already carries cfProt=sftp per host.",
-          }),
+        onCopyFiles: () => {
+          if (selected) openCommander(selected);
+        },
         onKeyManager: () =>
           setModal({
             kind: "info",
@@ -294,6 +292,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return; // commander keys (Ctrl+T etc.) handled locally
       if (e.ctrlKey && e.key.toLowerCase() === "t") {
         e.preventDefault();
         openLocalShell();
@@ -384,9 +383,25 @@ export default function App() {
                 Import your WinSSHTerm settings via <b>File → Import connections…</b>
               </div>
             )}
-            {tabs.map((t) => (
-              <TerminalView key={t.id} tab={t} active={t.id === activeTab} />
-            ))}
+            {tabs.map((t) =>
+              t.kind === "commander" ? (
+                <CommanderView
+                  key={t.id}
+                  tab={t}
+                  active={t.id === activeTab}
+                  onToast={notify}
+                  onOpenTerminal={(ct) =>
+                    openTerminalFromSpec(
+                      ct.spec,
+                      ct.title.replace(/ · SFTP$/, ""),
+                      ct.target,
+                    )
+                  }
+                />
+              ) : (
+                <TerminalView key={t.id} tab={t} active={t.id === activeTab} />
+              ),
+            )}
           </div>
         </div>
       </div>
@@ -410,11 +425,7 @@ export default function App() {
                 className="menu-entry"
                 onClick={() => {
                   setCtx(null);
-                  setModal({
-                    kind: "info",
-                    title: "Copy Files / SFTP commander",
-                    message: "Dual-pane SFTP commander is the next milestone.",
-                  });
+                  openCommander(ctxNode);
                 }}
               >
                 <span>Copy Files</span>

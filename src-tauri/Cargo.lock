@@ -2302,7 +2302,7 @@ dependencies = [
 
 [[package]]
 name = "nuxsshterm"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "aes-gcm",
  "argon2",
@@ -2316,6 +2316,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "tokio",
  "uuid",
  "zeroize",
 ]

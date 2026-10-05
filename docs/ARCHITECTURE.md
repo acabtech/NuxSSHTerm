@@ -1,4 +1,4 @@
-# NuxSSHTerm — Architecture (v0.2.0)
+# NuxSSHTerm — Architecture (v0.3.0)
 
 A Linux-native reimplementation of WinSSHTerm — **no Wine, no Windows emulation** — targeting Sam's
 Omarchy Quattro system, to replace his Windows SSH workflow completely.
@@ -144,16 +144,50 @@ ssh [-p port] [-l user] [-i key] [-X|-Y] [-o ForwardAgent=yes] [-J jump]
 
 ## SFTP commander (WinSCP "commander view" equivalent)
 
-One persistent `sftp` child per commander tab, batch mode (stdin commands, no prompts, parse stdout):
+One persistent `sftp` child per commander tab. The child is spawned **without
+`-b`** (piped stdin keeps it alive command-after-command — verified on OpenSSH
+9.x: it echoes every command as `sftp> <cmd>` on stdout and stays resident).
+Each request is framed with a sentinel: after the real command the driver
+pushes `!printf 'NXSFTPEND_<session-token>\n'` (a local shell command), and the
+response is everything on stdout up to that sentinel plus stderr lines from the
+same window. Errors do **not** abort the stream, so a long-lived child is safe
+for sequential scripted ops (`src-tauri/src/sftp.rs`).
 
-- `ls -la <abs path>` → parse columns: `perms nlink owner group size mon day time|year name...`
-  (name = tokens ≥9 joined with spaces) → dual-pane render.
-- Remote ops: `get/put [-r]`, `rename`, `mkdir`, `rmdir`, `rm -r`, `chmod`, `chown`, `symlink`.
-- Local pane: tokio fs. Path bars on both panes; Ctrl+U swaps panes; Ctrl+R refresh; F5 copy,
-  F6 move, F7 mkdir, F8 delete, F9 properties, Ctrl+T new tab, Alt+F4 close.
-- **Copy Files menu** per session (WinSSHTerm's right-click "Copy Files"): opens commander on that
-  host (cfProt=sftp), remote pane pre-navigated to $HOME; keeps transfer progress in a bottom strip.
-- Transfer engine: scripted sequential ops via the sftp child (v0.1); resume/parallel via russh-sftp (v0.2).
+- `ls -la <abs path>` → parse columns `perms nlink owner group size mon day
+  time|year name...` (name = tokens ≥9 joined with spaces). OpenSSH sftp prints
+  **full paths**, so each `SftpEntry` carries `path` (full, op-ready) and
+  `name` (basename for display; symlinks show the pre-` -> ` part).
+- Remote ops (`sftp_op`): `get/put [-r]`, `rename`, `mkdir`, `rmdir`, `rm`,
+  `chmod`, `chown` (numeric uid — sftp rejects names), `symlink`, and recursive
+  delete. OpenSSH sftp **has no `rm -r`**, so recursive delete is a depth-first
+  walk over the same child (`rm` files, `rmdir` dirs, symlinks removed as
+  links — never followed).
+- Local pane: `tokio` fs (`local_list`/`local_mkdir`/`local_rmdir`/`local_rm`/
+  `local_rename`/`local_remove`). `local_remove` decides from
+  `symlink_metadata` so symlinks are never followed. mtimes are formatted
+  in-process (civil-date conversion, no chrono dep; UTC, close enough for a
+  file manager).
+- **sftp argv** differs from ssh: port is `-P` (not `-p`), user is `-o User=`
+  (`-l` means bandwidth-limit in sftp), no X11 flag — `LaunchSpec::sftp_args()`.
+- **Password auth**: when a session has a vault password and no key, the spawn
+  sets `SSH_ASKPASS` to a 0700 helper in the config dir that cats a 0600
+  per-session password file (`SSH_ASKPASS_REQUIRE=force`, `DISPLAY=:0`);
+  password file is removed on tab close. Key/agent auth is inherited from the
+  environment like normal.
+- **Copy Files menu** per session (right-click "Copy Files" / Navigate → Copy
+  Files): opens the commander on that host pre-navigated to `$HOME` (from the
+  `pwd` handshake), honoring `cfProt=sftp` (other protocols toast an
+  "unsupported" notice).
+- Transfer engine: sequential scripted ops via the persistent child (v0.1).
+  Byte-level progress/resume/parallel land with russh-sftp (Phase 6). The
+  progress strip is file-level: current op text + an indeterminate indicator.
+- Commander tabs share the tab strip with terminals; the remote/local pane
+  listing state lives in the frontend (`CommanderView.tsx`) and refreshes on
+  tab activation.
+- Smoke test: `sftp::tests::smoke_localhost_driver` (`#[ignore]`d, run with
+  `cargo test -- --ignored`) drives the full op battery against a throwaway
+  local `nux-sftp-test` user over real sshd, with both password (askpass) and
+  key auth.
 
 ## Key manager ("Pageant")
 
@@ -223,6 +257,7 @@ One persistent `sftp` child per commander tab, batch mode (stdin commands, no pr
 
 - **v0.1**: 4 must-haves + session tree/tabs (shipped).
 - **v0.2**: encrypted vault (shipped in v0.2.0), PuTTY `.reg`/`.txt` + `.ppk` import and the
-  import wizard (shipped in v0.2.1), SFTP commander, key manager, quick-launch bar, tray,
-  search/filter, russh in-process, jump-host editor, `.kdbx` (best-effort via keepassxc-cli).
+  import wizard (shipped in v0.2.1), SFTP commander (shipped in v0.3.0), key manager,
+  quick-launch bar, tray, search/filter, russh in-process, jump-host editor, `.kdbx`
+  (best-effort via keepassxc-cli).
 - **v0.3**: scripts/automation (LaunchTools-style), multi-tab session grouping, session sync.

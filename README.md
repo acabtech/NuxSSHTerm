@@ -11,13 +11,14 @@ emulation: it uses the system OpenSSH client over a PTY.
 
 ## Status
 
-**v0.2 — vault + import milestone.** The shell/parity UI is in place (created
-in v0.1), the encrypted password vault shipped in v0.2.0, and the full settings
+**v0.3 — SFTP commander milestone.** The shell/parity UI is in place (created
+in v0.1), the encrypted password vault shipped in v0.2.0, the full settings
 import story (PuTTY `.reg`/KiTTY `.txt`/WinSSHTerm XML/KeePass `.kdbx`, plus
-`.ppk` key conversion) in v0.2.1. SFTP commander and the Pageant-equivalent key
-manager are next (see Roadmap).
+`.ppk` key conversion) in v0.2.1, and the dual-pane **SFTP commander**
+(WinSCP-style, F5/F6/F7/F8) in v0.3.0. The Pageant-equivalent key manager is
+next (see Roadmap).
 
-## What's here (v0.2)
+## What's here (v0.3)
 
 - **Tabbed terminal workspace** — multiple SSH sessions in tabs, with the
   WinSSHTerm-style window chrome (menu bar, quick strip, status bar).
@@ -38,6 +39,13 @@ manager are next (see Roadmap).
 - **Settings export** — write the tree back out in WinSSHTerm
   `connections.xml` format (schema verified against `Migrate2WinSSHTerm`
   v0.23), so an existing Windows setup can be carried across.
+- **SFTP commander (Copy Files)** — right-click a session → **Copy Files** (or
+  Navigate → Copy Files) opens a WinSCP-style dual-pane commander: local pane +
+  remote pane, path bars, and the WinSSHTerm shortcut set
+  (F5 copy · F6 move · F7 mkdir · F8 delete · F9 properties · Ctrl+U swap
+  panes · Ctrl+R refresh · Ctrl+T terminal to host). One persistent `sftp`
+  child per tab (sequential scripted transfers); vault passwords are injected
+  via an `SSH_ASKPASS` helper.
 - **Local persistence** — session tree stored under
   `~/.config/nuxsshterm/` in the native WinSSHTerm XML format.
 
@@ -80,19 +88,19 @@ Bundles are written to `src-tauri/target/release/bundle/`:
 
 ## Configuration & data
 
-- `~/.config/nuxsshterm/` — non-secret settings + session tree (in WinSSHTerm
-  `connections.xml` format). No passwords are stored yet.
-- A master-password-encrypted vault (Argon2id + AES-256-GCM) is planned for
-  secrets.
+- `~/.config/nuxsshterm/` — session tree (WinSSHTerm `connections.xml`
+  format), the SFTP askpass helper, and the encrypted vault; **passwords are
+  never written to `connections.xml`** — they live in the vault while unlocked
+  and only in memory when locked.
 
 ## Roadmap (upcoming)
 
-- **Copy Files (SFTP) commander** — the dual-pane WinSCP-style UI
-  (F5/F6/F7/F8), per-session.
 - **SSH key manager (Pageant equivalent)** — list/add/remove keys, with
   automatic `.ppk` conversion (both half-managed via `puttygen` already).
 - **Quick-launch bar, tray icon, session reconnect, system theme**, and further
   WinSSHTerm parity.
+- **In-process SSH (russh + russh-sftp)** — byte-level transfer progress,
+  resume/parallel transfers, password auth without the askpass helper.
 
 ## Project docs
 

@@ -1,6 +1,6 @@
 [package]
 name = "nuxsshterm"
-version = "0.2.1"
+version = "0.3.0"
 description = "A tabbed SSH solution for Linux — a native reimplementation of WinSSHTerm"
 authors = ["Sam Ralial"]
 edition = "2024"
@@ -27,6 +27,8 @@ argon2 = "0.5"
 aes-gcm = "0.10"
 rand = "0.8"
 zeroize = "1"
+# Phase 3 — SFTP commander local pane
+tokio = { version = "1", features = ["fs"] }
 
 [profile.release]
 codegen-units = 1

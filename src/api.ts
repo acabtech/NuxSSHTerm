@@ -90,3 +90,62 @@ export function base64ToBytes(b64: string): Uint8Array {
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return bytes;
 }
+
+// ---- Phase 3: SFTP commander (persistent sftp child per tab) ----
+
+export interface SftpEntry {
+  name: string;
+  path: string;
+  perms: string;
+  nlink: string;
+  owner: string;
+  group: string;
+  size: number;
+  mtime: string;
+  is_dir: boolean;
+  is_link: boolean;
+}
+
+export interface LocalEntry {
+  name: string;
+  is_dir: boolean;
+  is_link: boolean;
+  size: number;
+  mtime: string;
+  perms: string;
+}
+
+export interface SftpExecOutput {
+  out: string[];
+  err: string[];
+}
+
+export type SftpOp =
+  | { op: "mkdir"; path: string }
+  | { op: "rmdir"; path: string }
+  | { op: "rm"; path: string }
+  | { op: "rename"; from: string; to: string }
+  | { op: "chmod"; mode: string; path: string }
+  | { op: "chown"; uid: string; path: string }
+  | { op: "symlink"; target: string; link: string }
+  | { op: "get"; remote: string; local: string }
+  | { op: "put"; local: string; remote: string }
+  | { op: "rm_r"; path: string; is_dir: boolean };
+
+export const homeDir = () => invoke<string>("home_dir");
+export const sftpOpen = (id: string, spec: LaunchSpec, password?: string) =>
+  invoke<string>("sftp_open", { id, spec, password });
+export const sftpClose = (id: string) => invoke<void>("sftp_close", { id });
+export const sftpList = (id: string, path: string) =>
+  invoke<SftpEntry[]>("sftp_list", { id, path });
+export const sftpOp = (id: string, op: SftpOp, timeoutSecs?: number) =>
+  invoke<SftpExecOutput>("sftp_op", { id, op, timeoutSecs });
+export const localList = (path: string) =>
+  invoke<LocalEntry[]>("local_list", { path });
+export const localMkdir = (path: string) => invoke<void>("local_mkdir", { path });
+export const localRmdir = (path: string) => invoke<void>("local_rmdir", { path });
+export const localRm = (path: string) => invoke<void>("local_rm", { path });
+export const localRename = (from: string, to: string) =>
+  invoke<void>("local_rename", { from, to });
+export const localRemove = (path: string, isDir: boolean) =>
+  invoke<void>("local_remove", { path, isDir });

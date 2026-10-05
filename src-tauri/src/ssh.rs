@@ -97,6 +97,43 @@ impl LaunchSpec {
         }
     }
 
+    /// Build the `sftp` argv for this spec (program name excluded).
+    ///
+    /// Purposely NOT `ssh_args()`: sftp's flags differ (port is `-P`, not `-p`;
+    /// `-l` means bandwidth-limit, so the user goes through `-o User=`), X11
+    /// forwarding is meaningless, and the `-p`/`-l` forms would misfire.
+    pub fn sftp_args(&self) -> Vec<String> {
+        let mut args: Vec<String> = Vec::new();
+        if self.port != 0 && self.port != 22 {
+            args.push("-P".into());
+            args.push(self.port.to_string());
+        }
+        if !self.username.is_empty() {
+            args.push("-o".into());
+            args.push(format!("User={}", self.username));
+        }
+        if !self.private_key.is_empty() {
+            args.push("-i".into());
+            args.push(self.private_key.clone());
+        }
+        if self.forward_agent {
+            args.push("-o".into());
+            args.push("ForwardAgent=yes".into());
+        }
+        if self.proxy_enabled
+            && let Some(pc) = self.proxy_command() {
+                args.push("-o".into());
+                args.push(format!("ProxyCommand={pc}"));
+            }
+        for extra in &self.extra_args {
+            if !extra.trim().is_empty() {
+                args.push(extra.clone());
+            }
+        }
+        args.push(self.host.clone());
+        args
+    }
+
     /// Human-readable one-liner, shown in the tab tooltip / status bar.
     #[allow(dead_code)] // surfaced via the frontend's `targetOf`; kept for parity/tests
     pub fn display_target(&self) -> String {
@@ -184,6 +221,47 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(s.ssh_args(), vec!["-o", "ProxyCommand=nc %h %p", "h"]);
+    }
+
+    #[test]
+    fn sftp_args_use_sftp_flag_conventions() {
+        let s = LaunchSpec {
+            host: "h".into(),
+            port: 2222,
+            username: "sam".into(),
+            private_key: "/home/sam/.ssh/id_ed25519".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            s.sftp_args(),
+            vec!["-P", "2222", "-o", "User=sam", "-i", "/home/sam/.ssh/id_ed25519", "h"]
+        );
+    }
+
+    #[test]
+    fn sftp_args_omit_default_port_and_proxy() {
+        let s = LaunchSpec {
+            host: "h".into(),
+            proxy_enabled: true,
+            proxy_type: "SOCKS5".into(),
+            proxy_host: "proxy.local".into(),
+            proxy_port: "1080".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            s.sftp_args(),
+            vec!["-o", "ProxyCommand=nc -X 5 -x proxy.local:1080 %h %p", "h"]
+        );
+    }
+
+    #[test]
+    fn sftp_args_do_not_emit_x11_flag() {
+        let s = LaunchSpec {
+            host: "h".into(),
+            x11: true,
+            ..Default::default()
+        };
+        assert_eq!(s.sftp_args(), vec!["h"]);
     }
 
     #[test]

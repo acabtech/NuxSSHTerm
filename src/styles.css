@@ -394,3 +394,158 @@ html, body, #root {
   from { opacity: 0; transform: translateX(12px); }
   to { opacity: 1; transform: translateX(0); }
 }
+
+/* ---------------- SFTP commander (Phase 3) ---------------- */
+
+.term-pane.commander {
+  display: flex;
+  flex-direction: column;
+  outline: none;
+  background: var(--panel-bg);
+  padding: 0;
+}
+
+.cmd-body {
+  flex: 1 1 auto;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  min-height: 0;
+}
+
+.cmd-pane {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--chrome-line);
+  background: #fbfbfb;
+}
+.cmd-pane.focused { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+
+.cmd-pane-title {
+  padding: 3px 6px;
+  font-weight: 600;
+  font-size: 12px;
+  background: var(--tabstrip-bg);
+  border-bottom: 1px solid var(--chrome-line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmd-pathbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-bottom: 1px solid var(--chrome-line);
+}
+.cmd-pathbar input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", monospace;
+  font-size: 12px;
+  padding: 3px 6px;
+  border: 1px solid #c9c9c9;
+  border-radius: 2px;
+}
+.cmd-pathbar input:focus { border-color: var(--accent); outline: none; }
+
+.cmd-head, .cmd-row {
+  display: grid;
+  grid-template-columns: 1fr 84px 170px;
+  gap: 6px;
+  padding: 2px 6px;
+}
+.cmd-head {
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: #f3f3f3;
+  border-bottom: 1px solid var(--chrome-line);
+}
+.cmd-list { flex: 1 1 auto; overflow: auto; min-height: 0; }
+.cmd-row {
+  font-size: 12px;
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+}
+.cmd-row:hover { background: #eef4fa; }
+.cmd-row.selected { background: var(--sel-bg); }
+.cmd-row.up { color: var(--text-dim); }
+.c-name { overflow: hidden; text-overflow: ellipsis; }
+.c-size, .c-mtime { color: var(--text-dim); text-align: right; font-variant-numeric: tabular-nums; }
+.c-mtime { text-align: left; }
+.icon-dir::before  { content: "📁 "; }
+.icon-file::before { content: "📄 "; }
+.icon-link::before { content: "🔗 "; }
+.cmd-empty { padding: 12px 8px; color: var(--text-dim); font-style: italic; }
+
+.cmd-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 4px;
+  border-top: 1px solid var(--chrome-line);
+  background: var(--chrome);
+  font-size: 11px;
+}
+.cmd-remote-hint { margin-left: auto; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.cmd-progress-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border-top: 1px solid var(--chrome-line);
+  background: var(--chrome);
+  font-size: 12px;
+  color: var(--text);
+}
+.cmd-progress-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #b8b8b8;
+  flex: 0 0 auto;
+}
+.cmd-progress-dot.active {
+  background: var(--accent);
+  animation: cmd-pulse 0.8s ease-in-out infinite;
+}
+@keyframes cmd-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.cmd-progress-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cmd-fatal {
+  padding: 24px;
+  text-align: center;
+}
+.cmd-fatal pre {
+  display: inline-block;
+  text-align: left;
+  background: #f5f5f5;
+  border: 1px solid var(--chrome-line);
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 720px;
+}
+
+.prop-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.prop-grid > div {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 8px;
+}
+.prop-grid span { word-break: break-all; }
