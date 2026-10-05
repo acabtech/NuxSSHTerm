@@ -267,3 +267,54 @@ html, body, #root {
 .btn.primary { border-color: #0a66c2; }
 .muted { color: var(--text-dim); font-size: 12px; }
 .mono { font-family: ui-monospace, "DejaVu Sans Mono", monospace; font-size: 12px; }
+
+/* ---------------- Configuration note (password handling) ---------------- */
+
+.prop-note {
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #6d6d6d;
+  background: #fbf7ec;
+  border-top: 1px solid #ece3c8;
+}
+
+/* ---------------- Toast / notification stack ---------------- */
+
+.toast-stack {
+  position: fixed;
+  top: 30px;
+  right: 12px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 360px;
+}
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #ffffff;
+  border: 1px solid #a9b3bd;
+  border-left-width: 4px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+  font-size: 12px;
+  color: var(--text);
+  animation: toast-in 0.15s ease-out;
+}
+.toast-info { border-left-color: var(--accent); }
+.toast-success { border-left-color: #1d7a3d; }
+.toast-error { border-left-color: #c0392b; }
+.toast-msg { flex: 1 1 auto; white-space: pre-wrap; word-break: break-word; }
+.toast-close {
+  border: none; background: transparent; cursor: default;
+  color: #888; font-size: 11px; padding: 0 2px; line-height: 1;
+}
+.toast-close:hover { color: #000; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: translateX(0); }
+}

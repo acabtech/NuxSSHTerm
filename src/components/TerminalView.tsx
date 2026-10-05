@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { onPtyData, onPtyExit, ptyClose, ptyOpen, ptyResize, ptyWrite } from "../api";
+import { base64ToBytes, onPtyData, onPtyExit, ptyClose, ptyOpen, ptyResize, ptyWrite } from "../api";
 import type { Tab } from "../types";
 
 /**
@@ -67,7 +67,7 @@ export function TerminalView({ tab, active }: { tab: Tab; active: boolean }) {
 
     (async () => {
       unData = await onPtyData((e) => {
-        if (e.id === tab.id) term.write(e.data);
+        if (e.id === tab.id) term.write(base64ToBytes(e.data));
       });
       unExit = await onPtyExit((e) => {
         if (e.id === tab.id) {

@@ -67,6 +67,13 @@ export function ConfigPanel({
               </div>
             </div>
           ))}
+        {node && !isContainer && (
+          <div className="prop-note">
+            Passwords are held in memory only and are <b>not</b> written to{" "}
+            <span className="mono">connections.xml</span>. The encrypted vault (v0.2) will persist
+            them securely.
+          </div>
+        )}
       </div>
     </div>
   );

@@ -100,6 +100,7 @@ impl Node {
         self.node_type == KIND_CONTAINER
     }
 
+    #[allow(dead_code)] // used by the importer preview (Phase 2)
     pub fn port_or(&self, default: u16) -> u16 {
         self.port.parse::<u16>().unwrap_or(default)
     }
@@ -109,6 +110,7 @@ impl Node {
         self
     }
 
+    #[allow(dead_code)] // used by tests and the importer (Phase 2)
     pub fn with_key(mut self, key: &str) -> Self {
         self.private_key = key.to_string();
         self
@@ -124,5 +126,14 @@ pub fn flatten(nodes: &[Node], prefix: &[String], out: &mut Vec<(Vec<String>, No
         if !n.children.is_empty() {
             flatten(&n.children, &path, out);
         }
+    }
+}
+
+/// Recursively clear every node's password. Used before writing to disk so
+/// plaintext passwords are never persisted (vault lands in v0.2).
+pub fn strip_passwords(nodes: &mut [Node]) {
+    for n in nodes {
+        n.password.clear();
+        strip_passwords(&mut n.children);
     }
 }

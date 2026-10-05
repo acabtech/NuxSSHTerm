@@ -1,4 +1,4 @@
-# NuxSSHTerm — Architecture (v0.1)
+# NuxSSHTerm — Architecture (v0.1.1)
 
 A Linux-native reimplementation of WinSSHTerm — **no Wine, no Windows emulation** — targeting Sam's
 Omarchy Quattro system, to replace his Windows SSH workflow completely.
@@ -69,12 +69,15 @@ struct Proxy { kind: ProxyKind, host: String, port: u16, user: Option<String>, t
 
 ## Storage
 
-- `~/.config/nuxsshterm/config.json` — non-secret settings + session tree (no passwords).
-- `~/.config/nuxsshterm/vault.bin` — secret blob: JSON {sessions_with_passwords, imported_ppk_map}
-  encrypted with **AES-256-GCM**; key = **Argon2id**(master password, random 16-byte salt,
-  m=64 MiB, t=3, p=4). Master password is never stored. First run → "set master password" wizard;
-  every start → unlock dialog (WinSSHTerm behaviour). Forgot password → reset vault (session
-  passwords are wiped; connections survive).
+- `~/.config/nuxsshterm/connections.xml` — the session tree in WinSSHTerm format. **Passwords are
+  never written to disk**: `save_tree`/`export_connections_file` strip `Node.password` before
+  serialising (see `model::strip_passwords`). Passwords live only in memory until the vault lands.
+- `~/.config/nuxsshterm/log` — append-only backend error log (see "Error handling" below).
+- `~/.config/nuxsshterm/vault.bin` (v0.2) — secret blob: JSON {sessions_with_passwords,
+  imported_ppk_map} encrypted with **AES-256-GCM**; key = **Argon2id**(master password, random
+  16-byte salt, m=64 MiB, t=3, p=4). Master password is never stored. First run → "set master
+  password" wizard; every start → unlock dialog (WinSSHTerm behaviour). Forgot password → reset
+  vault (session passwords are wiped; connections survive).
 
 ## Importer (built against real schema; user's files arrive later)
 
@@ -96,6 +99,9 @@ ssh [-p port] [-l user] [-i key] [-X|-Y] [-o ForwardAgent=yes] [-J jump]
 ```
 
 - PTY master → xterm.js via IPC event (tauri `invoke`/events); xterm.js input → PTY stdin.
+- **Binary-safe streaming**: PTY output is read in 8 KiB chunks and emitted as **base64** in the
+  `pty-data` event (not `String::from_utf8_lossy`), so multi-byte UTF-8 sequences split across
+  chunk boundaries are never corrupted. The frontend decodes base64 → `Uint8Array` → `term.write`.
 - Resize: xterm fit addon → `pty.resize(cols, rows)`.
 - Tab strip = app state; sessions survive tab close (reconnect button) — v0.1: close = kill.
 - Host key prompt: xterm shows ssh's own prompt (pass-through) — https://
@@ -145,11 +151,27 @@ One persistent `sftp` child per commander tab, batch mode (stdin commands, no pr
 - Windows-like theme (title bar colors, tab styling) via CSS; follows system dark/light (v0.2).
 - App ID `com.alatcerdas.nuxsshterm`; `.desktop` entry; tray icon (v0.2).
 
+## Error handling
+
+- Frontend: a toast/notification stack (`useToasts` + `ToastStack`) replaces ad-hoc `notice`
+  strings. Status/error messages are pushed as auto-expiring, dismissible toasts; the status bar
+  keeps the latest line.
+- Backend: command errors are logged to `~/.config/nuxsshterm/log` via `log::error` (append-only,
+  best-effort, never panics).
+
+## Tests & CI
+
+- Rust unit tests: `xml.rs` round-trip (parse → write → parse, idempotency, escaping) and
+  `ssh.rs::ssh_args()` snapshot tests for port/user/key, X11/agent, SOCKS5/Local proxy, extra args.
+- CI (`.github/workflows/ci.yml`): on Linux — `npm ci && npm run build` (frontend) and
+  `cargo check` + `cargo clippy -- -D warnings` + `cargo test` (backend, with Tauri system deps).
+
 ## Security notes
 
 - Master password never persisted; vault is zero-knowledge under Argon2id+AES-GCM.
 - Keys remain on disk; only fingerprints live in the agent.
 - No password in argv or logs; `sftp`/`ssh` use agent or vault-injected password via askpass pipe.
+- Passwords are never written to `connections.xml` (stripped on save/export) until the vault lands.
 - .reg/.settings import: warn on absolute Windows paths (map to converted keys interactively).
 
 ## Migration checklist (for Sam, when the Windows box is available)

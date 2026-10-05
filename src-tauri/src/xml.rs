@@ -169,3 +169,63 @@ pub fn write_connections(nodes: &[Node]) -> String {
     out.push_str("</WinSSHTerm>");
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::Node;
+
+    #[test]
+    fn round_trip_preserves_tree() {
+        let tree = vec![
+            Node::container("Proxmox Hosts", true).with_children(vec![
+                Node::connection("Elitedesk One", "192.168.100.201", "root", 22)
+                    .with_key("/home/sam/.ssh/id_ed25519"),
+                Node::connection("opnSense Local", "192.168.100.1", "admin", 443),
+            ]),
+            Node::connection("Debian WSL", "", "", 22),
+        ];
+
+        let xml = write_connections(&tree);
+        let parsed = parse_connections(&xml).expect("parse should succeed");
+
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].name, "Proxmox Hosts");
+        assert_eq!(parsed[0].node_type, KIND_CONTAINER);
+        assert!(parsed[0].expanded);
+        assert_eq!(parsed[0].children.len(), 2);
+
+        let first = &parsed[0].children[0];
+        assert_eq!(first.name, "Elitedesk One");
+        assert_eq!(first.hostname, "192.168.100.201");
+        assert_eq!(first.username, "root");
+        assert_eq!(first.port, "22");
+        assert_eq!(first.private_key, "/home/sam/.ssh/id_ed25519");
+        assert_eq!(first.cf_prot, "sftp");
+
+        let second = &parsed[0].children[1];
+        assert_eq!(second.name, "opnSense Local");
+        assert_eq!(second.port, "443");
+
+        assert_eq!(parsed[1].name, "Debian WSL");
+        assert_eq!(parsed[1].hostname, "");
+    }
+
+    #[test]
+    fn round_trip_is_stable() {
+        // parse → write → parse must be idempotent.
+        let tree = vec![Node::connection("Host", "10.0.0.1", "sam", 2222)];
+        let once = write_connections(&tree);
+        let parsed = parse_connections(&once).unwrap();
+        let twice = write_connections(&parsed);
+        assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn escapes_special_chars() {
+        let tree = vec![Node::connection("A&B <C> \"D\"", "h", "u", 22)];
+        let xml = write_connections(&tree);
+        let parsed = parse_connections(&xml).unwrap();
+        assert_eq!(parsed[0].name, "A&B <C> \"D\"");
+    }
+}

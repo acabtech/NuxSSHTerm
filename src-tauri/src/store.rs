@@ -16,6 +16,7 @@ pub fn connections_path() -> PathBuf {
     config_dir().join("connections.xml")
 }
 
+#[allow(dead_code)] // reserved for non-secret settings (v0.2)
 pub fn settings_path() -> PathBuf {
     config_dir().join("settings.json")
 }
@@ -36,7 +37,10 @@ pub fn load_tree() -> Vec<Node> {
 }
 
 pub fn save_tree(nodes: &[Node]) -> Result<(), String> {
-    std::fs::write(connections_path(), xml::write_connections(nodes)).map_err(|e| e.to_string())
+    // Never persist plaintext passwords — strip them before writing to disk.
+    let mut clean = nodes.to_vec();
+    crate::model::strip_passwords(&mut clean);
+    std::fs::write(connections_path(), xml::write_connections(&clean)).map_err(|e| e.to_string())
 }
 
 /// Import a WinSSHTerm `connections.xml` / `.settings` file into the native store.

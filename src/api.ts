@@ -25,6 +25,7 @@ export const ptyClose = (id: string) => invoke<void>("pty_close", { id });
 
 export interface PtyDataEvent {
   id: string;
+  /** base64-encoded raw PTY bytes (binary-safe across chunk boundaries). */
   data: string;
 }
 export interface PtyExitEvent {
@@ -36,3 +37,11 @@ export const onPtyData = (cb: (e: PtyDataEvent) => void): Promise<UnlistenFn> =>
   listen<PtyDataEvent>("pty-data", (ev) => cb(ev.payload));
 export const onPtyExit = (cb: (e: PtyExitEvent) => void): Promise<UnlistenFn> =>
   listen<PtyExitEvent>("pty-exit", (ev) => cb(ev.payload));
+
+/** Decode a base64 string (from `pty-data`) into raw bytes for xterm.js. */
+export function base64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}

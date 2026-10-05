@@ -108,3 +108,91 @@ impl LaunchSpec {
         format!("{user}@{}:{}", self.host, self.port)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_spec_is_just_host() {
+        let s = LaunchSpec {
+            host: "example.com".into(),
+            ..Default::default()
+        };
+        assert_eq!(s.ssh_args(), vec!["example.com"]);
+    }
+
+    #[test]
+    fn port_username_and_key() {
+        let s = LaunchSpec {
+            host: "h".into(),
+            port: 2222,
+            username: "sam".into(),
+            private_key: "/home/sam/.ssh/id_ed25519".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            s.ssh_args(),
+            vec!["-p", "2222", "-l", "sam", "-i", "/home/sam/.ssh/id_ed25519", "h"]
+        );
+    }
+
+    #[test]
+    fn default_port_22_is_omitted() {
+        let s = LaunchSpec {
+            host: "h".into(),
+            port: 22,
+            ..Default::default()
+        };
+        assert_eq!(s.ssh_args(), vec!["h"]);
+    }
+
+    #[test]
+    fn x11_and_agent_forwarding() {
+        let s = LaunchSpec {
+            host: "h".into(),
+            x11: true,
+            forward_agent: true,
+            ..Default::default()
+        };
+        assert_eq!(s.ssh_args(), vec!["-Y", "-o", "ForwardAgent=yes", "h"]);
+    }
+
+    #[test]
+    fn socks5_proxy_command() {
+        let s = LaunchSpec {
+            host: "h".into(),
+            proxy_enabled: true,
+            proxy_type: "SOCKS5".into(),
+            proxy_host: "proxy.local".into(),
+            proxy_port: "1080".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            s.ssh_args(),
+            vec!["-o", "ProxyCommand=nc -X 5 -x proxy.local:1080 %h %p", "h"]
+        );
+    }
+
+    #[test]
+    fn local_proxy_uses_telnet_command() {
+        let s = LaunchSpec {
+            host: "h".into(),
+            proxy_enabled: true,
+            proxy_type: "Local".into(),
+            proxy_telnet_cmd: "nc %host %port".into(),
+            ..Default::default()
+        };
+        assert_eq!(s.ssh_args(), vec!["-o", "ProxyCommand=nc %h %p", "h"]);
+    }
+
+    #[test]
+    fn extra_args_are_appended_before_host() {
+        let s = LaunchSpec {
+            host: "h".into(),
+            extra_args: vec!["-o".into(), "ServerAliveInterval=30".into()],
+            ..Default::default()
+        };
+        assert_eq!(s.ssh_args(), vec!["-o", "ServerAliveInterval=30", "h"]);
+    }
+}

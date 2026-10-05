@@ -1,5 +1,6 @@
 //! NuxSSHTerm — Tauri backend.
 
+mod log;
 mod model;
 mod pty;
 mod seed;
@@ -16,7 +17,10 @@ fn load_tree() -> Vec<Node> {
 
 #[tauri::command]
 fn save_tree(tree: Vec<Node>) -> Result<(), String> {
-    store::save_tree(&tree)
+    store::save_tree(&tree).map_err(|e| {
+        log::error("save_tree", &e);
+        e
+    })
 }
 
 #[tauri::command]
@@ -27,15 +31,30 @@ fn config_dir() -> String {
 /// Parse a WinSSHTerm `connections.xml` / exported `.settings` file for preview/import.
 #[tauri::command]
 fn import_connections_file(path: String) -> Result<Vec<Node>, String> {
-    let text =
-        std::fs::read_to_string(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
-    store::import_connections_xml(&text)
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("cannot read {path}: {e}"))
+        .map_err(|e| {
+            log::error("import_connections_file", &e);
+            e
+        })?;
+    store::import_connections_xml(&text).map_err(|e| {
+        log::error("import_connections_file", &e);
+        e
+    })
 }
 
 /// Write the current tree back out in WinSSHTerm format (round-trip export).
 #[tauri::command]
 fn export_connections_file(path: String, tree: Vec<Node>) -> Result<(), String> {
-    std::fs::write(&path, xml::write_connections(&tree)).map_err(|e| e.to_string())
+    // Never write plaintext passwords to an exported file either.
+    let mut clean = tree;
+    model::strip_passwords(&mut clean);
+    std::fs::write(&path, xml::write_connections(&clean))
+        .map_err(|e| e.to_string())
+        .map_err(|e| {
+            log::error("export_connections_file", &e);
+            e
+        })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

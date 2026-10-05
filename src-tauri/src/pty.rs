@@ -4,6 +4,8 @@
 //! frontend as `pty-data` events; input/resize/kill arrive as commands.
 
 use crate::ssh::LaunchSpec;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD as B64;
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -22,6 +24,7 @@ pub struct PtyState(pub Mutex<HashMap<String, Sess>>);
 #[derive(Clone, serde::Serialize)]
 pub struct DataEvent {
     pub id: String,
+    /// base64-encoded raw PTY bytes — binary-safe across 8 KiB chunk boundaries.
     pub data: String,
 }
 
@@ -52,7 +55,11 @@ pub fn pty_open(
 ) -> Result<(), String> {
     let pair = native_pty_system()
         .openpty(size(cols, rows))
-        .map_err(|e| format!("openpty failed: {e}"))?;
+        .map_err(|e| {
+            let msg = format!("openpty failed: {e}");
+            crate::log::error("pty_open", &msg);
+            msg
+        })?;
 
     let local_shell = spec.host.is_empty();
     let mut cmd = if local_shell {
@@ -74,17 +81,29 @@ pub fn pty_open(
     let child = pair
         .slave
         .spawn_command(cmd)
-        .map_err(|e| format!("failed to spawn session: {e}"))?;
+        .map_err(|e| {
+            let msg = format!("failed to spawn session: {e}");
+            crate::log::error("pty_open", &msg);
+            msg
+        })?;
     drop(pair.slave); // so the child sees EOF when it exits
 
     let mut reader = pair
         .master
         .try_clone_reader()
-        .map_err(|e| format!("pty reader failed: {e}"))?;
+        .map_err(|e| {
+            let msg = format!("pty reader failed: {e}");
+            crate::log::error("pty_open", &msg);
+            msg
+        })?;
     let writer = pair
         .master
         .take_writer()
-        .map_err(|e| format!("pty writer failed: {e}"))?;
+        .map_err(|e| {
+            let msg = format!("pty writer failed: {e}");
+            crate::log::error("pty_open", &msg);
+            msg
+        })?;
 
     // Stream PTY output to the frontend.
     let app_for_thread = app.clone();
@@ -95,7 +114,7 @@ pub fn pty_open(
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let data = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let data = B64.encode(&buf[..n]);
                     let _ = app_for_thread.emit(
                         "pty-data",
                         DataEvent {

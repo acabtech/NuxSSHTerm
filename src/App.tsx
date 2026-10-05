@@ -1,80 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MenuBar, type MenuDef } from "./components/MenuBar";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { MenuBar } from "./components/MenuBar";
 import { ConfigPanel } from "./components/ConfigPanel";
 import { SessionTree, type TreeCallbacks } from "./components/SessionTree";
 import { StatusBar } from "./components/StatusBar";
 import { TabStrip } from "./components/TabStrip";
 import { TerminalView } from "./components/TerminalView";
-import {
-  exportConnectionsFile,
-  getConfigDir,
-  importConnectionsFile,
-  loadTree,
-  ptyWrite,
-  saveTree,
-} from "./api";
-import { emptyNode, specFromNode, targetOf, type SessionNode, type Tab } from "./types";
-
-/* ----------------------------- tree helpers ----------------------------- */
-
-function getAt(tree: SessionNode[], path: number[]): SessionNode | null {
-  let nodes = tree;
-  let node: SessionNode | null = null;
-  for (const i of path) {
-    node = nodes[i] ?? null;
-    if (!node) return null;
-    nodes = node.children;
-  }
-  return node;
-}
-
-function updateAt(tree: SessionNode[], path: number[], patch: Partial<SessionNode>): SessionNode[] {
-  if (path.length === 0) return tree;
-  const [i, ...rest] = path;
-  return tree.map((n, idx) => {
-    if (idx !== i) return n;
-    return rest.length === 0 ? { ...n, ...patch } : { ...n, children: updateAt(n.children, rest, patch) };
-  });
-}
-
-function insertAt(tree: SessionNode[], parentPath: number[], node: SessionNode): SessionNode[] {
-  if (parentPath.length === 0) return [...tree, node];
-  const [i, ...rest] = parentPath;
-  return tree.map((n, idx) =>
-    idx !== i ? n : { ...n, expanded: true, children: insertAt(n.children, rest, node) },
-  );
-}
-
-function removeAt(tree: SessionNode[], path: number[]): SessionNode[] {
-  if (path.length === 0) return tree;
-  const [i, ...rest] = path;
-  if (rest.length === 0) return tree.filter((_, idx) => idx !== i);
-  return tree.map((n, idx) => (idx !== i ? n : { ...n, children: removeAt(n.children, rest) }));
-}
-
-function countConnections(tree: SessionNode[]): number {
-  let n = 0;
-  const walk = (nodes: SessionNode[]) => {
-    for (const x of nodes) {
-      if (x.type === "Connection") n += 1;
-      if (x.children.length) walk(x.children);
-    }
-  };
-  walk(tree);
-  return n;
-}
-
-function mapAll(tree: SessionNode[], fn: (n: SessionNode) => SessionNode): SessionNode[] {
-  return tree.map((n) => fn({ ...n, children: n.children.length ? mapAll(n.children, fn) : [] }));
-}
-
-function uid(): string {
-  const c = globalThis.crypto as Crypto | undefined;
-  if (c && typeof c.randomUUID === "function") return c.randomUUID();
-  return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
-}
-
-/* --------------------------------- app --------------------------------- */
+import { ToastStack } from "./components/Toast";
+import { useSessionTree } from "./hooks/useSessionTree";
+import { useTabs } from "./hooks/useTabs";
+import { useToasts, type ToastKind } from "./hooks/useToasts";
+import { buildMenus } from "./lib/menuActions";
+import { emptyNode, type SessionNode } from "./types";
+import { getAt, insertAt } from "./lib/tree";
 
 type Modal =
   | { kind: "path"; action: "import" | "export"; title: string; value: string }
@@ -82,342 +19,169 @@ type Modal =
   | null;
 
 export default function App() {
-  const [tree, setTree] = useState<SessionNode[]>([]);
-  const [selectedPath, setSelectedPath] = useState<number[] | null>(null);
-  const [tabs, setTabs] = useState<Tab[]>([]);
-  const [activeTab, setActiveTab] = useState<string | null>(null);
-  const [configDir, setConfigDir] = useState("");
+  const { toasts, push, dismiss } = useToasts();
   const [notice, setNotice] = useState("Loaded session tree");
+  const [modal, setModal] = useState<Modal>(null);
   const [ctx, setCtx] = useState<{ x: number; y: number; path: number[] } | null>(null);
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; id: string } | null>(null);
-  const [modal, setModal] = useState<Modal>(null);
-  const treeLoaded = useRef(false);
 
-  // initial load
-  useEffect(() => {
-    (async () => {
-      try {
-        const [t, dir] = await Promise.all([loadTree(), getConfigDir()]);
-        setTree(t);
-        setConfigDir(dir);
-        treeLoaded.current = true;
-        setNotice(`Loaded ${t.length} top-level entries`);
-      } catch (e) {
-        setNotice(`Load failed: ${String(e)}`);
-      }
-    })();
-  }, []);
-
-  // persist (skip the initial load round-trip)
-  useEffect(() => {
-    if (!treeLoaded.current) return;
-    const h = window.setTimeout(() => {
-      void saveTree(tree).catch((e) => setNotice(`Save failed: ${String(e)}`));
-    }, 400);
-    return () => window.clearTimeout(h);
-  }, [tree]);
-
-  const selected = useMemo(
-    () => (selectedPath ? getAt(tree, selectedPath) : null),
-    [tree, selectedPath],
+  // notify drives both the status-bar line and the toast stack.
+  const notify = useCallback(
+    (msg: string, kind: ToastKind = "info") => {
+      setNotice(msg);
+      push(msg, kind);
+    },
+    [push],
   );
 
-  const connCount = useMemo(() => countConnections(tree), [tree]);
+  const treeApi = useSessionTree(notify);
+  const {
+    tree,
+    setTree,
+    selectedPath,
+    setSelectedPath,
+    selected,
+    connCount,
+    configDir,
+    updateNode,
+    toggleNode,
+    addSession,
+    duplicateSelected,
+    deleteSelected,
+    expandAll,
+    runImport,
+    runExport,
+  } = treeApi;
 
-  /* ------------------------------ sessions ------------------------------ */
+  const tabsApi = useTabs(notify);
+  const {
+    tabs,
+    activeTab,
+    setActiveTab,
+    currentTab,
+    openSession,
+    openLocalShell,
+    closeTab,
+    closeOthers,
+    closeAllTabs,
+    pasteIntoActive,
+  } = tabsApi;
 
-  const openSession = useCallback(
-    (path: number[]) => {
-      const node = getAt(tree, path);
-      if (!node || node.type === "Container") return;
-      if (!node.hostname) {
-        setNotice(`"${node.name}" has no Host/IP configured`);
+  // open a session, showing the "no host configured" modal when needed.
+  const openSessionChecked = useCallback(
+    (node: SessionNode) => {
+      const res = openSession(node);
+      if (!res.ok && res.reason === "no-host") {
         setModal({
           kind: "info",
           title: "No host configured",
           message:
-            `"${node.name}" has no Host/IP yet.\n\n` +
+            `"${res.name}" has no Host/IP yet.\n\n` +
             `This entry came from the rebuilt tree placeholder. Set Host/IP in the ` +
             `Configuration panel, or import your real WinSSHTerm settings via ` +
             `File → Import connections…`,
         });
-        return;
       }
-      const tab: Tab = {
-        id: uid(),
-        title: node.name,
-        kind: "terminal",
-        spec: specFromNode(node),
-        target: targetOf(node),
-        exited: false,
-      };
-      setTabs((t) => [...t, tab]);
-      setActiveTab(tab.id);
-      setNotice(`Opening ${tab.target}`);
     },
-    [tree],
+    [openSession],
   );
 
-  const openLocalShell = useCallback(() => {
-    const tab: Tab = {
-      id: uid(),
-      title: "Local shell",
-      kind: "terminal",
-      spec: specFromNode(emptyNode("Local shell", "Connection")),
-      target: `${navigator.platform || "local"} shell`,
-      exited: false,
-    };
-    setTabs((t) => [...t, tab]);
-    setActiveTab(tab.id);
-  }, []);
-
-  const closeTab = useCallback(
-    (id: string) => {
-      setTabs((prev) => {
-        const idx = prev.findIndex((t) => t.id === id);
-        const next = prev.filter((t) => t.id !== id);
-        setActiveTab((cur) => {
-          if (cur !== id) return cur;
-          const fallback = next[Math.min(idx, next.length - 1)];
-          return fallback ? fallback.id : null;
-        });
-        return next;
-      });
-    },
-    [],
-  );
-
-  const closeOthers = useCallback((id: string) => {
-    setTabs((prev) => prev.filter((t) => t.id === id));
-    setActiveTab(id);
-  }, []);
-
-  const closeAllTabs = useCallback(() => {
-    setTabs([]);
-    setActiveTab(null);
-  }, []);
-
-  const currentTab = tabs.find((t) => t.id === activeTab) ?? null;
-
-  const pasteIntoActive = useCallback(async () => {
-    if (!currentTab) {
-      setNotice("No active terminal to paste into");
-      return;
-    }
-    try {
-      const text = await navigator.clipboard.readText();
-      if (text) await ptyWrite(currentTab.id, text);
-      setNotice(`Pasted ${text.length} chars`);
-    } catch (e) {
-      setNotice(`Clipboard unavailable: ${String(e)}`);
-    }
-  }, [currentTab]);
-
-  /* ------------------------------- actions ------------------------------ */
-
-  const addSession = useCallback(
-    (asContainer: boolean) => {
-      const parentPath =
-        selectedPath && selected?.type === "Container" ? selectedPath : [];
-      const node = emptyNode(asContainer ? "New folder" : "New session", asContainer ? "Container" : "Connection");
-      setTree((t) => insertAt(t, parentPath, node));
-      setNotice(asContainer ? "Folder added" : "Session added");
-    },
-    [selected, selectedPath],
-  );
-
-  const duplicateSelected = useCallback(() => {
-    if (!selectedPath) return;
-    const node = getAt(tree, selectedPath);
-    if (!node) return;
-    const copy: SessionNode = JSON.parse(JSON.stringify(node));
-    copy.name = `${node.name} (copy)`;
-    const parentPath = selectedPath.slice(0, -1);
-    setTree((t) => insertAt(t, parentPath, copy));
-    setNotice(`Duplicated "${node.name}"`);
-  }, [selectedPath, tree]);
-
-  const deleteSelected = useCallback(() => {
-    if (!selectedPath) return;
-    const node = getAt(tree, selectedPath);
-    if (!node) return;
-    setTree((t) => removeAt(t, selectedPath));
-    setSelectedPath(null);
-    setNotice(`Deleted "${node.name}"`);
-  }, [selectedPath, tree]);
-
-  const expandAll = useCallback(
-    (expanded: boolean) => setTree((t) => mapAll(t, (n) => (n.type === "Container" ? { ...n, expanded } : n))),
-    [],
-  );
-
-  const runImport = useCallback(async (path: string) => {
-    try {
-      const imported = await importConnectionsFile(path);
-      setTree(imported);
-      setSelectedPath(null);
-      setNotice(`Imported ${imported.length} top-level entries from settings`);
-      setModal({
-        kind: "info",
-        title: "Import complete",
-        message: `Imported ${imported.length} top-level entries from:\n${path}\n\nThey are shown in the Connections panel and saved to the local config folder.`,
-      });
-    } catch (e) {
-      setModal({ kind: "info", title: "Import failed", message: String(e) });
-    }
-  }, []);
-
-  const runExport = useCallback(
+  const handleImport = useCallback(
     async (path: string) => {
-      try {
-        await exportConnectionsFile(path, tree);
+      const res = await runImport(path);
+      if (res.ok) {
+        setModal({
+          kind: "info",
+          title: "Import complete",
+          message: `Imported ${res.count} top-level entries from:\n${res.path}\n\nThey are shown in the Connections panel and saved to the local config folder.`,
+        });
+      } else {
+        setModal({ kind: "info", title: "Import failed", message: res.error ?? "Unknown error" });
+      }
+    },
+    [runImport],
+  );
+
+  const handleExport = useCallback(
+    async (path: string) => {
+      const res = await runExport(path);
+      if (res.ok) {
         setModal({
           kind: "info",
           title: "Export complete",
-          message: `Wrote WinSSHTerm-format connections.xml to:\n${path}`,
+          message: `Wrote WinSSHTerm-format connections.xml to:\n${res.path}`,
         });
-      } catch (e) {
-        setModal({ kind: "info", title: "Export failed", message: String(e) });
+      } else {
+        setModal({ kind: "info", title: "Export failed", message: res.error ?? "Unknown error" });
       }
     },
-    [tree],
+    [runExport],
   );
 
   /* -------------------------------- menus ------------------------------- */
 
-  const menus: MenuDef[] = useMemo(
-    () => [
-      {
-        label: "File",
-        items: [
-          {
-            kind: "item",
-            label: "Import connections…",
-            hint: "connections.xml",
-            onClick: () =>
-              setModal({
-                kind: "path",
-                action: "import",
-                title: "Import WinSSHTerm connections / settings",
-                value: "/home/sam/winsshterm-import/connections.xml",
-              }),
-          },
-          {
-            kind: "item",
-            label: "Export connections…",
-            hint: "connections.xml",
-            onClick: () =>
-              setModal({
-                kind: "path",
-                action: "export",
-                title: "Export connections in WinSSHTerm format",
-                value: `${configDir}/connections-export.xml`,
-              }),
-          },
-          { kind: "divider" },
-          {
-            kind: "item",
-            label: "Master password…",
-            hint: "v0.2",
-            onClick: () =>
-              setModal({
-                kind: "info",
-                title: "Master password",
-                message:
-                  "The encrypted vault (Argon2id + AES-256-GCM) lands next, with the " +
-                  "settings importer that carries your stored passwords across.",
-              }),
-          },
-          {
-            kind: "item",
-            label: "Config folder…",
-            hint: configDir ? "open" : "",
-            onClick: () =>
-              setModal({ kind: "info", title: "Config folder", message: configDir }),
-          },
-          { kind: "divider" },
-          { kind: "item", label: "Exit", onClick: () => window.close() },
-        ],
-      },
-      {
-        label: "View",
-        items: [
-          { kind: "item", label: "Expand all", onClick: () => expandAll(true) },
-          { kind: "item", label: "Collapse all", onClick: () => expandAll(false) },
-          { kind: "divider" },
-          { kind: "item", label: "Connections panel", hint: "always on", disabled: true, onClick: () => {} },
-          { kind: "item", label: "Configuration panel", hint: "always on", disabled: true, onClick: () => {} },
-        ],
-      },
-      {
-        label: "Navigate",
-        items: [
-          { kind: "item", label: "New session", hint: "Ctrl+N", onClick: () => addSession(false) },
-          { kind: "item", label: "New folder", onClick: () => addSession(true) },
-          { kind: "divider" },
-          {
-            kind: "item",
-            label: "Connect",
-            disabled: !selected || selected.type === "Container",
-            onClick: () => selectedPath && openSession(selectedPath),
-          },
-          {
-            kind: "item",
-            label: "Copy Files (SFTP)…",
-            hint: "next",
-            disabled: !selected || selected.type === "Container",
-            onClick: () =>
-              setModal({
-                kind: "info",
-                title: "Copy Files / SFTP commander",
-                message:
-                  "The dual-pane commander (WinSCP-style, F5/F6/F7/F8) is the next " +
-                  "milestone. The session model already carries cfProt=sftp per host.",
-              }),
-          },
-        ],
-      },
-      {
-        label: "Tools",
-        items: [
-          {
-            kind: "item",
-            label: "SSH key manager…",
-            hint: "Pageant",
-            onClick: () =>
-              setModal({
-                kind: "info",
-                title: "SSH key manager",
-                message:
-                  "Pageant-equivalent lands with the ssh-agent UI: list fingerprints, " +
-                  "add/remove keys, and convert .ppk → .pem automatically via puttygen.",
-              }),
-          },
-          { kind: "divider" },
-          { kind: "item", label: "New local shell", onClick: openLocalShell },
-        ],
-      },
-      {
-        label: "Help",
-        items: [
-          {
-            kind: "item",
-            label: "About NuxSSHTerm",
-            onClick: () =>
-              setModal({
-                kind: "info",
-                title: "About",
-                message:
-                  "NuxSSHTerm — v0.1 development build.\n\n" +
-                  "A native Linux reimplementation of WinSSHTerm (no Wine).\n" +
-                  "Sessions via system OpenSSH over a PTY; UI modelled on WinSSHTerm 2.43.x.",
-              }),
-          },
-        ],
-      },
-      { label: "Cons", items: [{ kind: "item", label: "Console options…", hint: "v0.2", disabled: true, onClick: () => {} }] },
-    ],
-    [addSession, configDir, expandAll, openLocalShell, openSession, selected, selectedPath],
+  const menus = useMemo(
+    () =>
+      buildMenus({
+        configDir,
+        selected,
+        selectedPath,
+        onImport: () =>
+          setModal({
+            kind: "path",
+            action: "import",
+            title: "Import WinSSHTerm connections / settings",
+            value: "/home/sam/winsshterm-import/connections.xml",
+          }),
+        onExport: () =>
+          setModal({
+            kind: "path",
+            action: "export",
+            title: "Export connections in WinSSHTerm format",
+            value: `${configDir}/connections-export.xml`,
+          }),
+        onMasterPassword: () =>
+          setModal({
+            kind: "info",
+            title: "Master password",
+            message:
+              "The encrypted vault (Argon2id + AES-256-GCM) lands next, with the " +
+              "settings importer that carries your stored passwords across.",
+          }),
+        onConfigFolder: () => setModal({ kind: "info", title: "Config folder", message: configDir }),
+        onExpandAll: expandAll,
+        onAddSession: addSession,
+        onConnect: () => {
+          if (selected) openSessionChecked(selected);
+        },
+        onCopyFiles: () =>
+          setModal({
+            kind: "info",
+            title: "Copy Files / SFTP commander",
+            message:
+              "The dual-pane commander (WinSCP-style, F5/F6/F7/F8) is the next " +
+              "milestone. The session model already carries cfProt=sftp per host.",
+          }),
+        onKeyManager: () =>
+          setModal({
+            kind: "info",
+            title: "SSH key manager",
+            message:
+              "Pageant-equivalent lands with the ssh-agent UI: list fingerprints, " +
+              "add/remove keys, and convert .ppk → .pem automatically via puttygen.",
+          }),
+        onOpenLocalShell: openLocalShell,
+        onAbout: () =>
+          setModal({
+            kind: "info",
+            title: "About",
+            message:
+              "NuxSSHTerm — v0.1 development build.\n\n" +
+              "A native Linux reimplementation of WinSSHTerm (no Wine).\n" +
+              "Sessions via system OpenSSH over a PTY; UI modelled on WinSSHTerm 2.43.x.",
+          }),
+      }),
+    [configDir, selected, selectedPath, expandAll, addSession, openSessionChecked, openLocalShell],
   );
 
   /* ---------------------------- keyboard ---------------------------- */
@@ -440,11 +204,11 @@ export default function App() {
 
   const treeCb: TreeCallbacks = {
     onSelect: (path) => setSelectedPath(path),
-    onToggle: (path) => {
+    onToggle: toggleNode,
+    onOpen: (path) => {
       const n = getAt(tree, path);
-      if (n?.type === "Container") setTree((t) => updateAt(t, path, { expanded: !n.expanded }));
+      if (n) openSessionChecked(n);
     },
-    onOpen: openSession,
     onContextMenu: (e, path) => {
       e.preventDefault();
       setSelectedPath(path);
@@ -479,19 +243,13 @@ export default function App() {
               <button className="tbtn" title="Forward" disabled>▶</button>
               <button className="tbtn" title="Collapse all" onClick={() => expandAll(false)}>▾</button>
               <button className="tbtn" title="Expand all" onClick={() => expandAll(true)}>▴</button>
-              <button className="tbtn" title="Refresh" onClick={() => setNotice("Tree refreshed")}>⟳</button>
+              <button className="tbtn" title="Refresh" onClick={() => notify("Tree refreshed")}>⟳</button>
               <button className="tbtn" title="Search (v0.2)" disabled>🔍</button>
             </div>
             <SessionTree tree={tree} selectedPath={selectedPath} cb={treeCb} />
           </div>
 
-          <ConfigPanel
-            node={selected}
-            onChange={(patch) => {
-              if (!selectedPath) return;
-              setTree((t) => updateAt(t, selectedPath, patch));
-            }}
-          />
+          <ConfigPanel node={selected} onChange={updateNode} />
         </div>
 
         <div className="docarea">
@@ -529,7 +287,7 @@ export default function App() {
         <div className="menu-pop" style={{ left: ctx.x, top: ctx.y }} onMouseDown={(e) => e.stopPropagation()}>
           {ctxNode.type === "Connection" && (
             <>
-              <div className="menu-entry" onClick={() => { setCtx(null); openSession(ctx.path); }}>
+              <div className="menu-entry" onClick={() => { setCtx(null); openSessionChecked(ctxNode); }}>
                 <span>Connect</span>
               </div>
               <div
@@ -617,7 +375,7 @@ export default function App() {
                   if (e.key === "Enter") {
                     const v = modal.value;
                     setModal(null);
-                    void (modal.action === "import" ? runImport(v) : runExport(v));
+                    void (modal.action === "import" ? handleImport(v) : handleExport(v));
                   }
                 }}
               />
@@ -633,7 +391,7 @@ export default function App() {
                 onClick={() => {
                   const v = modal.value;
                   setModal(null);
-                  void (modal.action === "import" ? runImport(v) : runExport(v));
+                  void (modal.action === "import" ? handleImport(v) : handleExport(v));
                 }}
               >
                 {modal.action === "import" ? "Import" : "Export"}
@@ -656,6 +414,8 @@ export default function App() {
           </div>
         </div>
       )}
+
+      <ToastStack toasts={toasts} onDismiss={dismiss} />
     </div>
   );
 }

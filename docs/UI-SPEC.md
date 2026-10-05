@@ -81,6 +81,9 @@ Layout engine in the original: **DockPanel Suite** (dockable panels). v0.1 = fix
     Login Cmds, Cmd-line Args, Env Color, Custom Id, Custom Type
   - **Container** (implied): Name, Descr
 - Edits apply to the selected node immediately (v0.1: edit form on the right; property grid parity v0.2).
+- **Password field**: held in memory only and **not** written to `connections.xml` (stripped on
+  save/export). A note under the property grid states this; the encrypted vault (v0.2) will persist
+  it securely.
 
 ## 3. Document area (tabs)
 
@@ -108,6 +111,12 @@ Buttons, left→right: `Scripts` (+ ⟳ reload, ⊠ clear icons), separator, `Pa
 - `Paste` = paste clipboard into active terminal.
 - `Visible` / `Con` / `None` = quick-launch-bar visibility presets.
 v0.1: render the strip for fidelity; wire `Paste` only. Others are placeholders.
+
+## 5b. Notifications (toasts)
+
+- Status/error messages appear as a stack of auto-expiring, dismissible toasts in the top-right
+  corner (info/success/error variants, colour-coded left border). The status bar keeps the latest
+  line. Replaces the earlier ad-hoc `notice` strings.
 
 ## 6. Theme
 
