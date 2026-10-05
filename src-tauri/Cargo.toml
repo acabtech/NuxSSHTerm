@@ -1,6 +1,6 @@
 [package]
 name = "nuxsshterm"
-version = "0.1.1"
+version = "0.2.0"
 description = "A tabbed SSH solution for Linux — a native reimplementation of WinSSHTerm"
 authors = ["Sam Ralial"]
 edition = "2024"
@@ -22,6 +22,11 @@ quick-xml = "0.37"
 base64 = "0.22"
 dirs = "6"
 uuid = { version = "1", features = ["v4"] }
+# Phase 1 — encrypted vault
+argon2 = "0.5"
+aes-gcm = "0.10"
+rand = "0.8"
+zeroize = "1"
 
 [profile.release]
 codegen-units = 1

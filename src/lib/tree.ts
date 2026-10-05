@@ -71,6 +71,43 @@ export function mapAll(
   return tree.map((n) => fn({ ...n, children: n.children.length ? mapAll(n.children, fn) : [] }));
 }
 
+/**
+ * Stable vault key for the node at `path`: the ancestor names joined by "/".
+ * Used to associate a session's password with its vault entry.
+ */
+export function pathKey(tree: SessionNode[], path: number[]): string {
+  const names: string[] = [];
+  let nodes = tree;
+  for (const i of path) {
+    const n = nodes[i];
+    if (!n) return "";
+    names.push(n.name);
+    nodes = n.children;
+  }
+  return names.join("/");
+}
+
+/** Return a new tree with connection passwords filled from a vault map (path key -> password). */
+export function applyPasswords(
+  tree: SessionNode[],
+  map: Record<string, string>,
+): SessionNode[] {
+  const walk = (nodes: SessionNode[], prefix: string[]): SessionNode[] =>
+    nodes.map((n) => {
+      const path = [...prefix, n.name];
+      const key = path.join("/");
+      const next =
+        n.type === "Connection" && map[key] ? { ...n, password: map[key] } : n;
+      return { ...next, children: n.children.length ? walk(n.children, path) : [] };
+    });
+  return walk(tree, []);
+}
+
+/** Return a new tree with every connection password cleared (used on lock). */
+export function clearPasswords(tree: SessionNode[]): SessionNode[] {
+  return mapAll(tree, (n) => (n.type === "Connection" ? { ...n, password: "" } : n));
+}
+
 /** Generate a unique id (crypto.randomUUID when available). */
 export function uid(): string {
   const c = globalThis.crypto as Crypto | undefined;

@@ -6,16 +6,21 @@ import { StatusBar } from "./components/StatusBar";
 import { TabStrip } from "./components/TabStrip";
 import { TerminalView } from "./components/TerminalView";
 import { ToastStack } from "./components/Toast";
+import { VaultModal, type VaultModalKind } from "./components/VaultModal";
 import { useSessionTree } from "./hooks/useSessionTree";
 import { useTabs } from "./hooks/useTabs";
 import { useToasts, type ToastKind } from "./hooks/useToasts";
+import { useVault } from "./hooks/useVault";
 import { buildMenus } from "./lib/menuActions";
 import { emptyNode, type SessionNode } from "./types";
-import { getAt, insertAt } from "./lib/tree";
+import { applyPasswords, clearPasswords, getAt, insertAt, pathKey } from "./lib/tree";
 
 type Modal =
   | { kind: "path"; action: "import" | "export"; title: string; value: string }
   | { kind: "info"; title: string; message: string }
+  | { kind: "vault-init" }
+  | { kind: "vault-unlock" }
+  | { kind: "vault-reset" }
   | null;
 
 export default function App() {
@@ -33,6 +38,18 @@ export default function App() {
     },
     [push],
   );
+
+  const vault = useVault(notify);
+  const {
+    status: vaultStatus,
+    checking: vaultChecking,
+    init: vaultInit,
+    unlock: vaultUnlock,
+    lock: vaultLock,
+    reset: vaultReset,
+    getPasswords: vaultGetPasswords,
+    putPassword: vaultPutPassword,
+  } = vault;
 
   const treeApi = useSessionTree(notify);
   const {
@@ -86,6 +103,49 @@ export default function App() {
     [openSession],
   );
 
+  /* ------------------------------ vault ------------------------------ */
+
+  // On start, prompt to set up or unlock the vault (dismissable).
+  useEffect(() => {
+    if (vaultChecking) return;
+    if (vaultStatus.unlocked) return;
+    setModal(vaultStatus.initialized ? { kind: "vault-unlock" } : { kind: "vault-init" });
+  }, [vaultChecking, vaultStatus.initialized, vaultStatus.unlocked]);
+
+  // When the vault is unlocked, hydrate connection passwords from it.
+  useEffect(() => {
+    if (!vaultStatus.unlocked) return;
+    (async () => {
+      try {
+        const map = await vaultGetPasswords();
+        setTree((t) => applyPasswords(t, map));
+        notify("Vault unlocked — passwords loaded");
+      } catch (e) {
+        notify(`Failed to load vault passwords: ${String(e)}`, "error");
+      }
+    })();
+  }, [vaultStatus.unlocked, vaultGetPasswords, setTree, notify]);
+
+  // When the vault is locked, drop every password from the in-memory tree.
+  useEffect(() => {
+    if (vaultStatus.unlocked) return;
+    setTree((t) => clearPasswords(t));
+  }, [vaultStatus.unlocked, setTree]);
+
+  // Persist password edits to the vault (only meaningful while unlocked).
+  const handleUpdateNode = useCallback(
+    (patch: Partial<SessionNode>) => {
+      if (patch.password !== undefined && vaultStatus.unlocked && selectedPath) {
+        const key = pathKey(tree, selectedPath);
+        void vaultPutPassword(key, patch.password).catch((e) =>
+          notify(`Vault save failed: ${String(e)}`, "error"),
+        );
+      }
+      updateNode(patch);
+    },
+    [vaultStatus.unlocked, selectedPath, tree, vaultPutPassword, updateNode, notify],
+  );
+
   const handleImport = useCallback(
     async (path: string) => {
       const res = await runImport(path);
@@ -118,6 +178,34 @@ export default function App() {
     [runExport],
   );
 
+  const handleVaultSubmit = useCallback(
+    (kind: VaultModalKind, master: string) => {
+      if (kind === "vault-init") {
+        void vaultInit(master)
+          .then(() => {
+            setModal(null);
+            notify("Vault created and unlocked");
+          })
+          .catch((e) => notify(`Vault setup failed: ${String(e)}`, "error"));
+      } else if (kind === "vault-unlock") {
+        void vaultUnlock(master)
+          .then(() => {
+            setModal(null);
+            notify("Vault unlocked");
+          })
+          .catch((e) => notify(`Unlock failed: ${String(e)}`, "error"));
+      } else {
+        void vaultReset()
+          .then(() => {
+            setModal(null);
+            notify("Vault reset — stored passwords cleared");
+          })
+          .catch((e) => notify(`Reset failed: ${String(e)}`, "error"));
+      }
+    },
+    [vaultInit, vaultUnlock, vaultReset, notify],
+  );
+
   /* -------------------------------- menus ------------------------------- */
 
   const menus = useMemo(
@@ -140,14 +228,25 @@ export default function App() {
             title: "Export connections in WinSSHTerm format",
             value: `${configDir}/connections-export.xml`,
           }),
-        onMasterPassword: () =>
-          setModal({
-            kind: "info",
-            title: "Master password",
-            message:
-              "The encrypted vault (Argon2id + AES-256-GCM) lands next, with the " +
-              "settings importer that carries your stored passwords across.",
-          }),
+        onMasterPassword: () => {
+          if (vaultStatus.unlocked) {
+            setModal({
+              kind: "info",
+              title: "Vault",
+              message:
+                "The vault is unlocked. Use File → Lock vault to drop the in-memory key and " +
+                "clear session passwords from the UI.",
+            });
+          } else {
+            setModal(vaultStatus.initialized ? { kind: "vault-unlock" } : { kind: "vault-init" });
+          }
+        },
+        onLockVault: () => {
+          void vaultLock()
+            .then(() => notify("Vault locked"))
+            .catch((e) => notify(`Lock failed: ${String(e)}`, "error"));
+        },
+        vaultUnlocked: vaultStatus.unlocked,
         onConfigFolder: () => setModal({ kind: "info", title: "Config folder", message: configDir }),
         onExpandAll: expandAll,
         onAddSession: addSession,
@@ -181,7 +280,18 @@ export default function App() {
               "Sessions via system OpenSSH over a PTY; UI modelled on WinSSHTerm 2.43.x.",
           }),
       }),
-    [configDir, selected, selectedPath, expandAll, addSession, openSessionChecked, openLocalShell],
+    [
+      configDir,
+      selected,
+      selectedPath,
+      expandAll,
+      addSession,
+      openSessionChecked,
+      openLocalShell,
+      vaultStatus.unlocked,
+      vaultLock,
+      notify,
+    ],
   );
 
   /* ---------------------------- keyboard ---------------------------- */
@@ -249,7 +359,11 @@ export default function App() {
             <SessionTree tree={tree} selectedPath={selectedPath} cb={treeCb} />
           </div>
 
-          <ConfigPanel node={selected} onChange={updateNode} />
+          <ConfigPanel
+            node={selected}
+            onChange={handleUpdateNode}
+            vaultUnlocked={vaultStatus.unlocked}
+          />
         </div>
 
         <div className="docarea">
@@ -281,7 +395,13 @@ export default function App() {
         </div>
       </div>
 
-      <StatusBar tab={currentTab} configDir={configDir} sessionCount={connCount} notice={notice} />
+      <StatusBar
+        tab={currentTab}
+        configDir={configDir}
+        sessionCount={connCount}
+        notice={notice}
+        vault={vaultStatus.initialized ? (vaultStatus.unlocked ? "unlocked" : "locked") : "unset"}
+      />
 
       {ctx && ctxNode && ctx.path[0] >= 0 && (
         <div className="menu-pop" style={{ left: ctx.x, top: ctx.y }} onMouseDown={(e) => e.stopPropagation()}>
@@ -414,6 +534,20 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {modal &&
+        (modal.kind === "vault-init" ||
+          modal.kind === "vault-unlock" ||
+          modal.kind === "vault-reset") && (
+          <VaultModal
+            kind={modal.kind}
+            onClose={() => setModal(null)}
+            onSubmit={(master) => handleVaultSubmit(modal.kind, master)}
+            onForgot={
+              modal.kind === "vault-unlock" ? () => setModal({ kind: "vault-reset" }) : undefined
+            }
+          />
+        )}
 
       <ToastStack toasts={toasts} onDismiss={dismiss} />
     </div>

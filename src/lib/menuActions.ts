@@ -11,6 +11,8 @@ export interface MenuActions {
   onImport: () => void;
   onExport: () => void;
   onMasterPassword: () => void;
+  onLockVault: () => void;
+  vaultUnlocked: boolean;
   onConfigFolder: () => void;
   onExpandAll: (expanded: boolean) => void;
   onAddSession: (asContainer: boolean) => void;
@@ -44,8 +46,14 @@ export function buildMenus(a: MenuActions): MenuDef[] {
         {
           kind: "item",
           label: "Master password…",
-          hint: "v0.2",
           onClick: a.onMasterPassword,
+        },
+        {
+          kind: "item",
+          label: "Lock vault",
+          hint: a.vaultUnlocked ? "unlocked" : "",
+          disabled: !a.vaultUnlocked,
+          onClick: a.onLockVault,
         },
         {
           kind: "item",

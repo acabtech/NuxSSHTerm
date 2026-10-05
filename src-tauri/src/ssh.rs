@@ -62,12 +62,11 @@ impl LaunchSpec {
             args.push("-o".into());
             args.push("ForwardAgent=yes".into());
         }
-        if self.proxy_enabled {
-            if let Some(pc) = self.proxy_command() {
+        if self.proxy_enabled
+            && let Some(pc) = self.proxy_command() {
                 args.push("-o".into());
                 args.push(format!("ProxyCommand={pc}"));
             }
-        }
         for extra in &self.extra_args {
             if !extra.trim().is_empty() {
                 args.push(extra.clone());
@@ -99,6 +98,7 @@ impl LaunchSpec {
     }
 
     /// Human-readable one-liner, shown in the tab tooltip / status bar.
+    #[allow(dead_code)] // surfaced via the frontend's `targetOf`; kept for parity/tests
     pub fn display_target(&self) -> String {
         let user = if self.username.is_empty() {
             "?".to_string()

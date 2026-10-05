@@ -81,9 +81,9 @@ Layout engine in the original: **DockPanel Suite** (dockable panels). v0.1 = fix
     Login Cmds, Cmd-line Args, Env Color, Custom Id, Custom Type
   - **Container** (implied): Name, Descr
 - Edits apply to the selected node immediately (v0.1: edit form on the right; property grid parity v0.2).
-- **Password field**: held in memory only and **not** written to `connections.xml` (stripped on
-  save/export). A note under the property grid states this; the encrypted vault (v0.2) will persist
-  it securely.
+- **Password field**: never written to `connections.xml` (stripped on save/export). When the vault
+  is unlocked, edits are persisted to the encrypted vault (`vault.bin`); when locked, they are held
+  in memory only. A note under the property grid reflects the current vault state.
 
 ## 3. Document area (tabs)
 
@@ -117,6 +117,18 @@ v0.1: render the strip for fidelity; wire `Paste` only. Others are placeholders.
 - Status/error messages appear as a stack of auto-expiring, dismissible toasts in the top-right
   corner (info/success/error variants, colour-coded left border). The status bar keeps the latest
   line. Replaces the earlier ad-hoc `notice` strings.
+
+## 5c. Encrypted vault (v0.2)
+
+- **First run** → "Set master password" wizard modal (password + confirm; min 4 chars). Dismissable
+  via **Skip** (passwords stay memory-only until a vault is created).
+- **Every start** → "Unlock vault" modal when a vault exists. **Forgot password?** leads to a
+  **Reset vault** confirmation (wipes stored passwords; connections are kept).
+- **File → Master password…** opens the wizard or unlock dialog (or shows vault status when
+  already unlocked); **File → Lock vault** drops the in-memory key and clears passwords from the UI.
+- **Status bar** shows `vault: unset | locked | unlocked` (green when unlocked, amber when locked).
+- While unlocked, editing a session's Password in the Configuration panel persists it to the
+  encrypted vault; the note under the property grid reflects the current state.
 
 ## 6. Theme
 

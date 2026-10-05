@@ -245,6 +245,9 @@ html, body, #root {
 .statusbar .cell.grow { flex: 1 1 auto; border-right: none; }
 .statusbar .cell.ok { color: #1d7a3d; }
 .statusbar .cell.warn { color: #9a6a00; }
+.statusbar .cell.vault.unlocked { color: #1d7a3d; }
+.statusbar .cell.vault.locked { color: #9a6a00; }
+.statusbar .cell.vault.unset { color: var(--muted); }
 
 /* ---------------- Modal ---------------- */
 

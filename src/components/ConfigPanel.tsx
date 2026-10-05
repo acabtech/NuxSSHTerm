@@ -27,9 +27,11 @@ const CONTAINER_FIELDS: Field[] = [
 export function ConfigPanel({
   node,
   onChange,
+  vaultUnlocked,
 }: {
   node: SessionNode | null;
   onChange: (patch: Partial<SessionNode>) => void;
+  vaultUnlocked: boolean;
 }) {
   const isContainer = node?.type === "Container";
   const fields = node ? (isContainer ? CONTAINER_FIELDS : CONNECTION_FIELDS) : [];
@@ -69,9 +71,18 @@ export function ConfigPanel({
           ))}
         {node && !isContainer && (
           <div className="prop-note">
-            Passwords are held in memory only and are <b>not</b> written to{" "}
-            <span className="mono">connections.xml</span>. The encrypted vault (v0.2) will persist
-            them securely.
+            {vaultUnlocked ? (
+              <>
+                Passwords are stored in the <b>encrypted vault</b> (Argon2id + AES-256-GCM) and are{" "}
+                <b>not</b> written to <span className="mono">connections.xml</span>.
+              </>
+            ) : (
+              <>
+                The vault is <b>locked</b> — passwords are held in memory only and are{" "}
+                <b>not</b> written to <span className="mono">connections.xml</span>. Unlock via{" "}
+                <b>File → Master password…</b> to persist them.
+              </>
+            )}
           </div>
         )}
       </div>

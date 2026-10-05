@@ -1,15 +1,19 @@
 import type { Tab } from "../types";
 
+export type VaultStatusLabel = "unset" | "locked" | "unlocked";
+
 export function StatusBar({
   tab,
   configDir,
   sessionCount,
   notice,
+  vault,
 }: {
   tab: Tab | null;
   configDir: string;
   sessionCount: number;
   notice: string;
+  vault: VaultStatusLabel;
 }) {
   return (
     <div className="statusbar">
@@ -19,6 +23,9 @@ export function StatusBar({
       <div className="cell">{tab ? tab.target : "no active session"}</div>
       <div className="cell grow">{notice}</div>
       <div className="cell">{sessionCount} hosts</div>
+      <div className={`cell vault ${vault}`} title="Encrypted password vault">
+        {vault === "unset" ? "vault: unset" : vault === "unlocked" ? "vault: unlocked" : "vault: locked"}
+      </div>
       <div className="cell mono" title={configDir}>
         {configDir || "…"}
       </div>

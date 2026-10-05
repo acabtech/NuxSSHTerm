@@ -1,6 +1,6 @@
 //! Reader/writer for the WinSSHTerm session-tree XML (`connections.xml` format).
 
-use crate::model::{Node, KIND_CONNECTION, KIND_CONTAINER};
+use crate::model::{Node, KIND_CONTAINER};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 use quick_xml::Reader;

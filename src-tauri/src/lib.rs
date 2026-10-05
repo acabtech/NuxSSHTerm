@@ -6,6 +6,7 @@ mod pty;
 mod seed;
 mod ssh;
 mod store;
+mod vault;
 mod xml;
 
 use model::Node;
@@ -17,9 +18,8 @@ fn load_tree() -> Vec<Node> {
 
 #[tauri::command]
 fn save_tree(tree: Vec<Node>) -> Result<(), String> {
-    store::save_tree(&tree).map_err(|e| {
-        log::error("save_tree", &e);
-        e
+    store::save_tree(&tree).inspect_err(|e| {
+        log::error("save_tree", e);
     })
 }
 
@@ -33,13 +33,11 @@ fn config_dir() -> String {
 fn import_connections_file(path: String) -> Result<Vec<Node>, String> {
     let text = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read {path}: {e}"))
-        .map_err(|e| {
-            log::error("import_connections_file", &e);
-            e
+        .inspect_err(|e| {
+            log::error("import_connections_file", e);
         })?;
-    store::import_connections_xml(&text).map_err(|e| {
-        log::error("import_connections_file", &e);
-        e
+    store::import_connections_xml(&text).inspect_err(|e| {
+        log::error("import_connections_file", e);
     })
 }
 
@@ -51,9 +49,8 @@ fn export_connections_file(path: String, tree: Vec<Node>) -> Result<(), String> 
     model::strip_passwords(&mut clean);
     std::fs::write(&path, xml::write_connections(&clean))
         .map_err(|e| e.to_string())
-        .map_err(|e| {
-            log::error("export_connections_file", &e);
-            e
+        .inspect_err(|e| {
+            log::error("export_connections_file", e);
         })
 }
 
@@ -62,6 +59,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(pty::PtyState::default())
+        .manage(vault::VaultState::default())
         .invoke_handler(tauri::generate_handler![
             load_tree,
             save_tree,
@@ -73,6 +71,14 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_close,
             pty::pty_alive,
+            vault::vault_status,
+            vault::vault_init,
+            vault::vault_unlock,
+            vault::vault_lock,
+            vault::vault_reset,
+            vault::vault_get_passwords,
+            vault::vault_put_password,
+            vault::vault_remove_password,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

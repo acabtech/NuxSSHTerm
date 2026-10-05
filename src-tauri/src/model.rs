@@ -118,6 +118,7 @@ impl Node {
 }
 
 /// Flatten the tree into `(path, node)` pairs — handy for search and for the importer preview.
+#[allow(dead_code)] // used by the importer preview (Phase 2)
 pub fn flatten(nodes: &[Node], prefix: &[String], out: &mut Vec<(Vec<String>, Node)>) {
     for n in nodes {
         let mut path = prefix.to_vec();

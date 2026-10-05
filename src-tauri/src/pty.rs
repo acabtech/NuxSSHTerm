@@ -173,11 +173,10 @@ pub fn pty_resize(
 #[tauri::command]
 pub fn pty_close(state: State<'_, PtyState>, id: String) -> Result<(), String> {
     let mut map = state.0.lock().unwrap();
-    if let Some(sess) = map.remove(&id) {
-        if let Ok(mut child) = sess.child.lock() {
+    if let Some(sess) = map.remove(&id)
+        && let Ok(mut child) = sess.child.lock() {
             let _ = child.kill();
         }
-    }
     Ok(())
 }
 

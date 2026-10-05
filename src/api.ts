@@ -11,6 +11,23 @@ export const importConnectionsFile = (path: string) =>
 export const exportConnectionsFile = (path: string, tree: SessionNode[]) =>
   invoke<void>("export_connections_file", { path, tree });
 
+// ---- Encrypted vault (Phase 1) ----
+export interface VaultStatus {
+  initialized: boolean;
+  unlocked: boolean;
+}
+export const getVaultStatus = () => invoke<VaultStatus>("vault_status");
+export const vaultInit = (master: string) => invoke<void>("vault_init", { master });
+export const vaultUnlock = (master: string) => invoke<void>("vault_unlock", { master });
+export const vaultLock = () => invoke<void>("vault_lock");
+export const vaultReset = () => invoke<void>("vault_reset");
+export const vaultGetPasswords = () =>
+  invoke<Record<string, string>>("vault_get_passwords");
+export const vaultPutPassword = (path: string, password: string) =>
+  invoke<void>("vault_put_password", { path, password });
+export const vaultRemovePassword = (path: string) =>
+  invoke<void>("vault_remove_password", { path });
+
 export const ptyOpen = (
   id: string,
   spec: LaunchSpec,

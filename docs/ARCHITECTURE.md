@@ -1,4 +1,4 @@
-# NuxSSHTerm — Architecture (v0.1.1)
+# NuxSSHTerm — Architecture (v0.2.0)
 
 A Linux-native reimplementation of WinSSHTerm — **no Wine, no Windows emulation** — targeting Sam's
 Omarchy Quattro system, to replace his Windows SSH workflow completely.
@@ -71,13 +71,30 @@ struct Proxy { kind: ProxyKind, host: String, port: u16, user: Option<String>, t
 
 - `~/.config/nuxsshterm/connections.xml` — the session tree in WinSSHTerm format. **Passwords are
   never written to disk**: `save_tree`/`export_connections_file` strip `Node.password` before
-  serialising (see `model::strip_passwords`). Passwords live only in memory until the vault lands.
+  serialising (see `model::strip_passwords`). Passwords live in the encrypted vault (below) while
+  unlocked, and only in memory when the vault is locked.
 - `~/.config/nuxsshterm/log` — append-only backend error log (see "Error handling" below).
-- `~/.config/nuxsshterm/vault.bin` (v0.2) — secret blob: JSON {sessions_with_passwords,
-  imported_ppk_map} encrypted with **AES-256-GCM**; key = **Argon2id**(master password, random
-  16-byte salt, m=64 MiB, t=3, p=4). Master password is never stored. First run → "set master
-  password" wizard; every start → unlock dialog (WinSSHTerm behaviour). Forgot password → reset
-  vault (session passwords are wiped; connections survive).
+- `~/.config/nuxsshterm/vault.bin` — the encrypted secret blob (see "Vault" below).
+
+## Vault (Phase 1, shipped in v0.2)
+
+- **On-disk format** (`vault.bin`): `[magic "NXVAULT1"][16-byte salt][12-byte nonce][AES-256-GCM
+  ciphertext]`. The plaintext is JSON `{ sessions_with_passwords, imported_ppk_map }` where
+  `sessions_with_passwords` maps a session path key (ancestor names joined by `/`) to its password,
+  and `imported_ppk_map` will hold `.ppk → .pem` conversions (Phase 2).
+- **Key derivation**: `Argon2id(master password, salt, m=64 MiB, t=3, p=4)` → 32-byte AES key
+  (`src-tauri/src/vault.rs`). The salt is embedded in the file header so the key can be re-derived
+  on unlock. The master password is **never stored**.
+- **Lifecycle**: first run → "set master password" wizard (`vault_init`); every start → unlock
+  dialog (`vault_unlock`); `vault_lock` drops the in-memory key/salt/blob; `vault_reset` (forgot
+  password) wipes the vault file — session passwords are lost, connections survive.
+- **In-memory key retention**: while unlocked the derived AES key + salt are held in `VaultState`,
+  so re-encrypting after a password edit (`vault_put_password`) does not require re-entering the
+  master password. The key is zeroized on lock/reset.
+- **Frontend**: `useVault` hook owns the lifecycle; on unlock it hydrates connection passwords into
+  the tree (`applyPasswords`), on lock it clears them (`clearPasswords`). Password edits in the
+  Configuration panel are written to the vault via `vault_put_password`. The status bar shows
+  `vault: unset | locked | unlocked`.
 
 ## Importer (built against real schema; user's files arrive later)
 
@@ -161,8 +178,9 @@ One persistent `sftp` child per commander tab, batch mode (stdin commands, no pr
 
 ## Tests & CI
 
-- Rust unit tests: `xml.rs` round-trip (parse → write → parse, idempotency, escaping) and
-  `ssh.rs::ssh_args()` snapshot tests for port/user/key, X11/agent, SOCKS5/Local proxy, extra args.
+- Rust unit tests: `xml.rs` round-trip (parse → write → parse, idempotency, escaping),
+  `ssh.rs::ssh_args()` snapshot tests for port/user/key, X11/agent, SOCKS5/Local proxy, extra args,
+  and `vault.rs` encrypt/decrypt round-trip, wrong-password rejection, and non-vault-data rejection.
 - CI (`.github/workflows/ci.yml`): on Linux — `npm ci && npm run build` (frontend) and
   `cargo check` + `cargo clippy -- -D warnings` + `cargo test` (backend, with Tauri system deps).
 
@@ -171,7 +189,8 @@ One persistent `sftp` child per commander tab, batch mode (stdin commands, no pr
 - Master password never persisted; vault is zero-knowledge under Argon2id+AES-GCM.
 - Keys remain on disk; only fingerprints live in the agent.
 - No password in argv or logs; `sftp`/`ssh` use agent or vault-injected password via askpass pipe.
-- Passwords are never written to `connections.xml` (stripped on save/export) until the vault lands.
+- Passwords are never written to `connections.xml` (stripped on save/export); they live in the
+  encrypted vault while unlocked and only in memory when locked.
 - .reg/.settings import: warn on absolute Windows paths (map to converted keys interactively).
 
 ## Migration checklist (for Sam, when the Windows box is available)
@@ -184,6 +203,7 @@ One persistent `sftp` child per commander tab, batch mode (stdin commands, no pr
 
 ## Roadmap
 
-- **v0.1**: 4 must-haves + session tree/tabs (this doc).
-- **v0.2**: quick-launch bar, tray, search/filter, russh in-process, jump-host editor, kdbx, export round-trip.
+- **v0.1**: 4 must-haves + session tree/tabs (shipped).
+- **v0.2**: encrypted vault (shipped), PuTTY `.reg`/`.ppk` import, SFTP commander, key manager,
+  quick-launch bar, tray, search/filter, russh in-process, jump-host editor, kdbx.
 - **v0.3**: scripts/automation (LaunchTools-style), multi-tab session grouping, session sync.
