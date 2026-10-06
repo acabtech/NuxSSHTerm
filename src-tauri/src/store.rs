@@ -102,17 +102,13 @@ fn apply_forward_agent(nodes: &mut [Node]) {
     }
 }
 
-/// Load the session tree; on first run, seed it with the tree reconstructed from
-/// Sam's WinSSHTerm screenshot and persist that so it can be edited immediately.
+/// Load the session tree; returns an empty tree on first run.
 pub fn load_tree() -> Vec<Node> {
     let mut nodes = if let Ok(s) = std::fs::read_to_string(connections_path())
-        && let Ok(nodes) = xml::parse_connections(&s)
-            && !nodes.is_empty() {
+        && let Ok(nodes) = xml::parse_connections(&s) {
                 nodes
             } else {
-                let seed = crate::seed::default_tree();
-                let _ = save_tree(&seed);
-                seed
+                Vec::new()
             };
     apply_forward_agent(&mut nodes);
     nodes

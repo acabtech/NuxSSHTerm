@@ -8,7 +8,6 @@ mod log;
 mod model;
 mod pty;
 mod putty;
-mod seed;
 mod sftp;
 mod ssh;
 mod store;
