@@ -154,12 +154,12 @@ pub fn agent_start(state: State<'_, AgentState>) -> Result<AgentStatus, String> 
     cmd.arg("-a").arg(&sock_str);
     let out = cmd.output().map_err(|e| format!("could not start ssh-agent: {e}"))?;
     if !out.status.success() {
-        let err = String::from_utf8_lossy_owned(out.stderr);
-        let err2 = String::from_utf8_lossy_owned(out.stdout);
+        let err = String::from_utf8_lossy(&out.stderr).into_owned();
+        let err2 = String::from_utf8_lossy(&out.stdout).into_owned();
         return Err(format!("ssh-agent failed: {err}{err2}"));
     }
 
-    let pid = parse_agent_pid(&String::from_utf8_lossy_owned(out.stdout));
+    let pid = parse_agent_pid(&String::from_utf8_lossy(&out.stdout).into_owned());
     if pid.is_empty() {
         return Err("ssh-agent started but its PID could not be parsed".into());
     }
@@ -231,8 +231,8 @@ pub fn agent_add(
         let _ = std::fs::remove_file(&f);
     }
 
-    let err = String::from_utf8_lossy_owned(out.stderr);
-    let err2 = String::from_utf8_lossy_owned(out.stdout);
+    let err = String::from_utf8_lossy(&out.stderr).into_owned();
+    let err2 = String::from_utf8_lossy(&out.stdout).into_owned();
     if out.status.success() {
         // Record the key path against its fingerprint so per-identity Remove
         // (`ssh-add -d <path>`) works — the agent itself only keeps fingerprints.
@@ -323,8 +323,8 @@ fn run_ssh_add(args: Vec<String>, sock: String) -> (String, String, i32) {
         Ok(out) => {
             let code = out.status.code().unwrap_or(-1);
             (
-                String::from_utf8_lossy_owned(out.stdout),
-                String::from_utf8_lossy_owned(out.stderr),
+                String::from_utf8_lossy(&out.stdout).into_owned(),
+                String::from_utf8_lossy(&out.stderr).into_owned(),
                 code,
             )
         }
@@ -377,7 +377,7 @@ fn fingerprint_of(path: &str) -> Option<String> {
     cmd.arg("-lf").arg(path);
     match cmd.output() {
         Ok(out) if out.status.success() => {
-            let text = String::from_utf8_lossy_owned(out.stdout);
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
             let (_, keys) = parse_add_l(&text, "", 0);
             if keys.is_empty() {
                 None
@@ -487,7 +487,7 @@ mod tests {
         cmd.arg("-a").arg(&sock.to_string_lossy().to_string());
         let out = cmd.output().expect("ssh-agent launch");
         assert!(out.status.success());
-        let pid = parse_agent_pid(&String::from_utf8_lossy_owned(out.stdout));
+        let pid = parse_agent_pid(&String::from_utf8_lossy(&out.stdout).into_owned());
         assert!(!pid.is_empty(), "pid parse");
         assert!(sock.exists(), "socket created");
         let sock_str = sock.to_string_lossy().to_string();
@@ -497,14 +497,14 @@ mod tests {
         kg.arg("-t").arg("ed25519").arg("-N").arg("");
         kg.arg("-f").arg(&key.to_string_lossy().to_string());
         let kgout = kg.output().expect("ssh-keygen");
-        assert!(kgout.status.success(), "ssh-keygen: {}", String::from_utf8_lossy_owned(kgout.stderr));
+        assert!(kgout.status.success(), "ssh-keygen: {}", String::from_utf8_lossy(&kgout.stderr).into_owned());
 
         // Add it with the socket env set.
         let mut add = std::process::Command::new("ssh-add");
         add.arg(&key.to_string_lossy().to_string());
         add.env("SSH_AUTH_SOCK", &sock_str);
         let aout = add.output().expect("ssh-add");
-        assert!(aout.status.success(), "add: {}", String::from_utf8_lossy_owned(aout.stderr));
+        assert!(aout.status.success(), "add: {}", String::from_utf8_lossy(&aout.stderr).into_owned());
 
         // List → 1 key.
         let (out2, err2, code2) = run_ssh_add(vec!["-l".to_string()], sock_str.clone());
@@ -531,7 +531,7 @@ mod tests {
         kill.env("SSH_AUTH_SOCK", &sock_str);
         kill.env("SSH_AGENT_PID", &pid);
         let kout = kill.output().expect("ssh-agent -k");
-        assert!(kout.status.success(), "kill: {}", String::from_utf8_lossy_owned(kout.stderr));
+        assert!(kout.status.success(), "kill: {}", String::from_utf8_lossy(&kout.stderr).into_owned());
         std::thread::sleep(Duration::from_millis(300));
         assert!(!sock.exists(), "socket removed after -k");
 

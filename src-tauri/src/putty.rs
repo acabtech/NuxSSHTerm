@@ -59,7 +59,7 @@ fn unescape_path(raw: &str) -> String {
         out.push(src[i]);
         i += 1;
     }
-    String::from_utf8_lossy_owned(out)
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// Unescape a regedit string value: `\n \r \t \\ \" \xNN` sequences.
@@ -101,7 +101,7 @@ fn unescape_reg_value(raw: &str) -> String {
         out.push(b);
         i += 1;
     }
-    String::from_utf8_lossy_owned(out)
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// True for absolute Windows paths like `C:\keys\id.ppk` or `C:/keys/id.ppk`.

@@ -43,13 +43,13 @@ pub fn export_xml(db_path: &str) -> Result<String, String> {
         .map_err(|e| format!("keepassxc-cli could not be started: {e}"))?;
     if !out.status.success() {
         let code = out.status.code().unwrap_or(-1);
-        let err: String = String::from_utf8_lossy_owned(out.stderr);
+        let err: String = String::from_utf8_lossy(&out.stderr).into_owned();
         return Err(format!(
             "keepassxc-cli export failed (exit {code}): {err}. Open the database in KeePassXC \
 or export it as XML manually (Menu → Database → Export → XML), then import that file."
         ));
     }
-    Ok(String::from_utf8_lossy_owned(out.stdout))
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
 fn field(map: &HashMap<String, String>, key: &str) -> String {

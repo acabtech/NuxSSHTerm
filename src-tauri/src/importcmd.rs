@@ -254,8 +254,8 @@ fn convert_ppk_impl(source: String) -> Result<ConvertedKey, String> {
         .output()
         .map_err(|e| format!("puttygen could not be started: {e}"))?;
     if !out.status.success() {
-        let err = String::from_utf8_lossy_owned(out.stderr);
-        let err2 = String::from_utf8_lossy_owned(out.stdout);
+        let err = String::from_utf8_lossy(&out.stderr).into_owned();
+        let err2 = String::from_utf8_lossy(&out.stdout).into_owned();
         return Err(format!("puttygen failed: {err}{err2}"));
     }
 
