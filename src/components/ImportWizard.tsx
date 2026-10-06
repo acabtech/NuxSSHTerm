@@ -6,6 +6,7 @@
 // unlocked) and never shown in the preview.
 
 import { useCallback, useEffect, useState } from "react";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import {
   convertPpk,
   importSessionsFile,
@@ -77,7 +78,7 @@ export function ImportWizard({
       const p = value.trim();
       if (!p) {
         setNote(
-          "Enter the path to a file to import (PuTTY .reg, KiTTY .txt, WinSSHTerm connections.xml / .settings, KeePass .kdbx).",
+          "Enter the path to a file to import (PuTTY .reg, KiTTY .txt, WinSSHTerm connections.xml / .settings, KeePass .kdbx), or use Browse….",
         );
         return;
       }
@@ -96,6 +97,31 @@ export function ImportWizard({
     },
     [],
   );
+
+  // Native file picker (Phase 2 plan: "file pickers → preview tree → mapping").
+  const browse = useCallback(async () => {
+    try {
+      const selected = await openFileDialog({
+        multiple: false,
+        directory: false,
+        title: "Select a file to import",
+        filters: [
+          {
+            name: "Sessions & keys",
+            extensions: ["reg", "txt", "xml", "settings", "kdbx", "ppk"],
+          },
+          { name: "All files", extensions: ["*"] },
+        ],
+      });
+      if (typeof selected === "string" && selected) {
+        setPath(selected);
+        setNote("");
+        void scanPath(selected);
+      }
+    } catch (e) {
+      setNote(`File picker failed: ${String(e)}`);
+    }
+  }, [scanPath]);
 
   const updateRow = useCallback((id: number, patch: Partial<Row>) => {
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -185,6 +211,9 @@ export function ImportWizard({
         <h3>Import sessions</h3>
         <div className="modal-body">
           <div className="import-path-row">
+            <button className="btn" onClick={() => void browse()} title="Pick a file with the system dialog">
+              Browse…
+            </button>
             <input
               type="text"
               value={path}

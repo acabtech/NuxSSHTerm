@@ -104,10 +104,15 @@ fn xml_warnings(nodes: &[Node]) -> Vec<String> {
     let empty: Vec<String> = Vec::new();
     crate::model::flatten(nodes, &empty, &mut flat);
     for (path, n) in flat {
+        let pathstr = join_slash(&path);
         if putty::is_windows_path(&n.private_key) {
-            let pathstr = join_slash(&path);
             warnings.push(format!(
                 "Session '{pathstr}': PrivateKey is a Windows path — set the Linux key path after import."
+            ));
+        }
+        if putty::is_windows_path(&n.certificate) {
+            warnings.push(format!(
+                "Session '{pathstr}': Certificate is a Windows path — set the Linux certificate path after import."
             ));
         }
     }
@@ -302,5 +307,23 @@ mod tests {
     fn rejects_unreadable_path() {
         let res = run_import_file("/nonexistent/nope.reg".into());
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn xml_warnings_cover_private_key_and_certificate() {
+        use crate::model::Node;
+        // Both PrivateKey and Certificate are Windows paths → two warnings.
+        let mut n = Node::connection("win host", "10.0.0.9", "sam", 22);
+        n.private_key = "C:\\keys\\id_ed25519.ppk".into();
+        n.certificate = "D:\\certs\\host.pem".into();
+        let warns = xml_warnings(&[n]);
+        assert_eq!(warns.len(), 2);
+        assert!(warns[0].contains("PrivateKey"));
+        assert!(warns[1].contains("Certificate"));
+
+        // Linux paths → no warnings.
+        let mut n2 = Node::connection("linux host", "10.0.0.10", "sam", 22);
+        n2.private_key = "/home/sam/.ssh/id_ed25519".into();
+        assert!(xml_warnings(&[n2]).is_empty());
     }
 }

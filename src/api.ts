@@ -35,7 +35,8 @@ export const convertPpk = (source: string) =>
 export const keepassxcAvailable = () => invoke<boolean>("keepassxc_available");
 
 // ppk conversion log stored inside the vault
-// export const vaultGetPpkMap = () => invoke<Record<string, string>>("vault_get_ppk_map");
+export const vaultGetPpkMap = () =>
+  invoke<Record<string, string>>("vault_get_ppk_map");
 export const vaultPutPpkImport = (original: string, converted: string) =>
   invoke<void>("vault_put_ppk_import", { original, converted });
 

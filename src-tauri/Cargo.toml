@@ -29,6 +29,7 @@ rand = "0.8"
 zeroize = "1"
 # Phase 3 — SFTP commander local pane
 tokio = { version = "1", features = ["fs"] }
+tauri-plugin-dialog = "2"
 
 [profile.release]
 codegen-units = 1

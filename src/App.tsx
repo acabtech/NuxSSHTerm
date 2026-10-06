@@ -530,7 +530,7 @@ export default function App() {
 
       {modal && modal.kind === "import-sessions" && (
         <ImportWizard
-          initialPath="/home/sam/winsshterm-import/connections.xml"
+          initialPath=""
           vaultUnlocked={vaultStatus.unlocked}
           onClose={() => setModal(null)}
           onImport={handleImportSessions}

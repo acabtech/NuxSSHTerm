@@ -63,6 +63,7 @@ fn export_connections_file(path: String, tree: Vec<Node>) -> Result<(), String> 
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(pty::PtyState::default())
         .manage(vault::VaultState::default())
         .manage(sftp::SftpState::default())
