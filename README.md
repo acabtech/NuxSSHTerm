@@ -67,8 +67,8 @@ Development screenshots are in [`docs/screenshots/`](docs/screenshots/):
 
 ## Requirements
 
-- Linux (targeted at Arch-based Omarchy Quattro; also builds `.deb` for
-  Debian/Ubuntu)
+- Linux (targeted for Omarchy; also builds `.deb` for
+  Debian/Ubuntu and .rpm for RedHat)
 - Node.js 18+ and npm
 - Rust (stable) and Cargo
 - The usual Tauri 2 Linux prerequisites (WebKitGTK, etc.):
@@ -117,9 +117,6 @@ Bundles are written to `src-tauri/target/release/bundle/`:
 - [`docs/UI-SPEC.md`](docs/UI-SPEC.md) — UI parity spec derived from the
   WinSSHTerm screenshot.
 
-> `plans/` is a host-local scratch directory and is intentionally gitignored.
-
 ## License
 
-Licensed for private use within the `acabtech` organization. See the repository
-owner for details.
+This project is licensed under the GPL v3 License - see the LICENSE file for details.
