@@ -77,10 +77,14 @@ Layout engine in the original: **DockPanel Suite** (dockable panels). v0.1 = fix
 - Header row: dropdown `Connection` (▾) — a **type selector**; switches property set by node type.
 - Property grid (WinForms PropertyGrid style): two columns — bold-ish name (left, ~40%), value (right,
   editable). Sets per type:
-  - **Connection**: Name, Host/IP, Port, User, Password, Private Key, Certificate, Login Dir,
+  - **Connection**: Name, Host/IP, Port, User, Password, Private Key, Certificate, Forward Agent,
+    Login Dir, Login Cmds, Cmd-line Args, Env Color, Custom Id, Custom Type
     Login Cmds, Cmd-line Args, Env Color, Custom Id, Custom Type
   - **Container** (implied): Name, Descr
 - Edits apply to the selected node immediately (v0.1: edit form on the right; property grid parity v0.2).
+- **Forward Agent** (Phase 4): a checkbox row for connections. When checked, sessions launch with
+  `-o ForwardAgent=yes` and the sftp commander forwards the agent too. UI-local setting persisted
+  in `settings.json` keyed by the session path (never exported to the WinSSHTerm XML).
 - **Password field**: never written to `connections.xml` (stripped on save/export). When the vault
   is unlocked, edits are persisted to the encrypted vault (`vault.bin`); when locked, they are held
   in memory only. A note under the property grid reflects the current vault state.
@@ -174,6 +178,26 @@ tab strip with terminals (`Terminal (SFTP)` suffix in the tab title).
   only in v0.1 (byte-level progress arrives with the russh engine, Phase 6).
 - **Deletions** of remote folders run a depth-first walk over the persistent
   sftp child (`rm` files / `rmdir` dirs — OpenSSH sftp has no `rm -r`).
+
+## 5f. SSH key manager (v0.4.0)
+
+Pageant-equivalent, opened via **Tools → SSH key manager…** (or the Tools menu hint “Pageant”).
+One modal; nothing else changes in the main chrome.
+
+- **Status line**: green dot — an agent is reachable; grey — none. Shows whether the socket
+  is the **dedicated agent** (spawned by NuxSSHTerm) or an **external agent** (`SSH_AUTH_SOCK`
+  inherited from the environment), plus the socket path.
+- **Start agent** (only when nothing is running): spawns a dedicated `ssh-agent -a
+  ~/.config/nuxsshterm/agent.sock` in daemon mode; keys survive app restarts (the record lives
+  in `settings.json`). **Stop agent** (only for the dedicated one) kills it via `ssh-agent -k`.
+- **Identity table**: bits, fingerprint, comment, type (`ssh-add -l`). Empty state: “The agent
+  has no identities.” Rows list a **Remove** button when the key was added by NuxSSHTerm this
+  session (needs the key path); other rows show “—” with a tooltip.
+- **Add key…**: native file picker → `ssh-add <key>`. A passphrase-protected key shows an inline
+  passphrase prompt inside the modal (askpass helper, like the sftp one) and retries until added.
+  Global **Remove all** clears every identity (`ssh-add -D`). **Refresh** re-queries.
+- **Forward Agent** checkbox in the Configuration panel (see 2.2) controls agent forwarding
+  per session, independent of the key manager itself.
 
 ## 6. Theme
 

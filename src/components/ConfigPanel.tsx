@@ -1,6 +1,10 @@
 import type { SessionNode } from "../types";
 
-type Field = { label: string; key: keyof SessionNode; type?: "text" | "password" };
+type Field = {
+  label: string;
+  key: keyof SessionNode;
+  type?: "text" | "password" | "checkbox";
+};
 
 const CONNECTION_FIELDS: Field[] = [
   { label: "Name", key: "name" },
@@ -10,6 +14,7 @@ const CONNECTION_FIELDS: Field[] = [
   { label: "Password", key: "password", type: "password" },
   { label: "Private Key", key: "private_key" },
   { label: "Certificate", key: "certificate" },
+  { label: "Forward Agent", key: "forward_agent", type: "checkbox" },
   { label: "Login Dir", key: "login_dir" },
   { label: "Login Cmds", key: "login_cmds" },
   { label: "Cmd-line Args", key: "cmdline_args" },
@@ -56,31 +61,53 @@ export function ConfigPanel({
       <div className="props">
         {!node && <div className="prop-empty">Select a session to edit its properties.</div>}
         {node &&
-          fields.map((f) => (
-            <div className="prop-row" key={String(f.key)}>
-              <div className="prop-label" title={f.label}>{f.label}</div>
-              <div className="prop-value">
-                <input
-                  type={f.type === "password" ? "password" : "text"}
-                  value={String(node[f.key] ?? "")}
-                  placeholder={f.label === "Private Key" ? "e.g. ~/.ssh/id_ed25519" : ""}
-                  onChange={(e) => onChange({ [f.key]: e.target.value } as Partial<SessionNode>)}
-                />
+          fields.map((f) =>
+            f.type === "checkbox" ? (
+              <div className="prop-row" key={String(f.key)}>
+                <div className="prop-label" title={f.label}>{f.label}</div>
+                <div className="prop-value">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(node[f.key] ?? false)}
+                    title={
+                      f.key === "forward_agent"
+                        ? "Forward your local ssh-agent to the remote host (ForwardAgent=yes)"
+                        : ""
+                    }
+                    onChange={(e) => onChange({ [f.key]: e.target.checked } as Partial<SessionNode>)}
+                  />
+                </div>
               </div>
-            </div>
-          ))}
+            ) : (
+              <div className="prop-row" key={String(f.key)}>
+                <div className="prop-label" title={f.label}>{f.label}</div>
+                <div className="prop-value">
+                  <input
+                    type={f.type === "password" ? "password" : "text"}
+                    value={String(node[f.key] ?? "")}
+                    placeholder={f.label === "Private Key" ? "e.g. ~/.ssh/id_ed25519" : ""}
+                    onChange={(e) => onChange({ [f.key]: e.target.value } as Partial<SessionNode>)}
+                  />
+                </div>
+              </div>
+            ),
+          )}
         {node && !isContainer && (
           <div className="prop-note">
             {vaultUnlocked ? (
               <>
                 Passwords are stored in the <b>encrypted vault</b> (Argon2id + AES-256-GCM) and are{" "}
                 <b>not</b> written to <span className="mono">connections.xml</span>.
+                Forward Agent is a NuxSSHTerm UI-local setting (kept in{" "}
+                <span className="mono">settings.json</span>, not exported to WinSSHTerm XML).
               </>
             ) : (
               <>
                 The vault is <b>locked</b> — passwords are held in memory only and are{" "}
                 <b>not</b> written to <span className="mono">connections.xml</span>. Unlock via{" "}
                 <b>File → Master password…</b> to persist them.
+                Forward Agent is a NuxSSHTerm UI-local setting (kept in{" "}
+                <span className="mono">settings.json</span>, not exported to WinSSHTerm XML).
               </>
             )}
           </div>

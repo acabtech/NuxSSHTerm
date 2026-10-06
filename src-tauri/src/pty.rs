@@ -77,6 +77,11 @@ pub fn pty_open(
     if !spec.username.is_empty() {
         cmd.env("USER", spec.username.clone());
     }
+    // Export the key-manager agent socket (Phase 4) so terminal sessions can
+    // use agent keys and ForwardAgent even when launched from a desktop icon.
+    if let Some(sock) = crate::agent::configured_socket() {
+        cmd.env("SSH_AUTH_SOCK", &sock);
+    }
 
     let child = pair
         .slave

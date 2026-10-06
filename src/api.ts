@@ -150,3 +150,35 @@ export const localRename = (from: string, to: string) =>
   invoke<void>("local_rename", { from, to });
 export const localRemove = (path: string, isDir: boolean) =>
   invoke<void>("local_remove", { path, isDir });
+
+// ---- Phase 4: key manager (Pageant equivalent) ----
+
+export interface AgentKey {
+  bits: string;
+  fingerprint: string;
+  comment: string;
+  key_type: string;
+  /** key path this identity was added from ("" when added by another tool). */
+  source_path: string;
+}
+
+export interface AgentStatus {
+  present: boolean;
+  ours: boolean;
+  socket: string | null;
+  keys: AgentKey[];
+}
+
+export interface AddKeyResult {
+  added: boolean;
+  needs_passphrase: boolean;
+  message: string;
+}
+
+export const agentStatus = () => invoke<AgentStatus>("agent_status");
+export const agentStart = () => invoke<AgentStatus>("agent_start");
+export const agentStop = () => invoke<void>("agent_stop");
+export const agentAdd = (key: string, passphrase?: string) =>
+  invoke<AddKeyResult>("agent_add", { key, passphrase });
+export const agentRemove = (key: string) => invoke<void>("agent_remove", { key });
+export const agentRemoveAll = () => invoke<void>("agent_remove_all");

@@ -33,6 +33,8 @@ export interface SessionNode {
   env_color: string;
   custom_id: string;
   custom_type: string;
+  /** Forward the ssh-agent to the remote host (`-o ForwardAgent=yes`). */
+  forward_agent: boolean;
 }
 
 export interface LaunchSpec {
@@ -91,6 +93,7 @@ export function emptyNode(name: string, type: NodeType): SessionNode {
     env_color: "",
     custom_id: "",
     custom_type: "",
+    forward_agent: false,
   };
 }
 
@@ -101,7 +104,7 @@ export function specFromNode(n: SessionNode): LaunchSpec {
     username: n.username,
     private_key: n.private_key,
     x11: n.x11 !== "" && !n.x11.toLowerCase().startsWith("don't"),
-    forward_agent: false,
+    forward_agent: n.forward_agent === true,
     extra_args: n.cmdline_args ? n.cmdline_args.split(/\s+/).filter(Boolean) : [],
     proxy_enabled: n.proxy_enabled,
     proxy_type: n.proxy_type,

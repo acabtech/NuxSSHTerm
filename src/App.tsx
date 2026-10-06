@@ -9,6 +9,7 @@ import { CommanderView } from "./components/CommanderView";
 import { ImportWizard } from "./components/ImportWizard";
 import { ToastStack } from "./components/Toast";
 import { VaultModal, type VaultModalKind } from "./components/VaultModal";
+import { KeyManagerModal } from "./components/KeyManagerModal";
 import { useSessionTree } from "./hooks/useSessionTree";
 import { useTabs } from "./hooks/useTabs";
 import { useToasts, type ToastKind } from "./hooks/useToasts";
@@ -20,6 +21,7 @@ import { applyPasswords, clearPasswords, getAt, insertAt, pathKey } from "./lib/
 type Modal =
   | { kind: "path"; action: "export"; title: string; value: string }
   | { kind: "import-sessions" }
+  | { kind: "key-manager" }
   | { kind: "info"; title: string; message: string }
   | { kind: "vault-init" }
   | { kind: "vault-unlock" }
@@ -255,14 +257,7 @@ export default function App() {
         onCopyFiles: () => {
           if (selected) openCommander(selected);
         },
-        onKeyManager: () =>
-          setModal({
-            kind: "info",
-            title: "SSH key manager",
-            message:
-              "Pageant-equivalent lands with the ssh-agent UI: list fingerprints, " +
-              "add/remove keys, and convert .ppk → .pem automatically via puttygen.",
-          }),
+        onKeyManager: () => setModal({ kind: "key-manager" }),
         onOpenLocalShell: openLocalShell,
         onAbout: () =>
           setModal({
@@ -535,6 +530,10 @@ export default function App() {
           onClose={() => setModal(null)}
           onImport={handleImportSessions}
         />
+      )}
+
+      {modal && modal.kind === "key-manager" && (
+        <KeyManagerModal onClose={() => setModal(null)} notify={notify} />
       )}
 
       {modal && modal.kind === "info" && (

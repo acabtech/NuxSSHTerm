@@ -1,4 +1,4 @@
-# NuxSSHTerm — Architecture (v0.3.0)
+# NuxSSHTerm — Architecture (v0.4.0)
 
 A Linux-native reimplementation of WinSSHTerm — **no Wine, no Windows emulation** — targeting Sam's
 Omarchy Quattro system, to replace his Windows SSH workflow completely.
@@ -75,6 +75,9 @@ struct Proxy { kind: ProxyKind, host: String, port: u16, user: Option<String>, t
   unlocked, and only in memory when the vault is locked.
 - `~/.config/nuxsshterm/log` — append-only backend error log (see "Error handling" below).
 - `~/.config/nuxsshterm/vault.bin` — the encrypted secret blob (see "Vault" below).
+- `~/.config/nuxsshterm/settings.json` — NuxSSHTerm's own **non-secret** UI-local settings:
+  the dedicated `ssh-agent` record (`agent_socket` + `agent_pid`, Phase 4) and the per-session
+  `ForwardAgent` flags keyed by vault-style path key. Kept out of the WinSSHTerm XML on purpose.
 
 ## Vault (Phase 1, shipped in v0.2)
 
@@ -189,15 +192,35 @@ for sequential scripted ops (`src-tauri/src/sftp.rs`).
   local `nux-sftp-test` user over real sshd, with both password (askpass) and
   key auth.
 
-## Key manager ("Pageant")
+## Key manager ("Pageant", shipped in v0.4.0)
 
-- Detects `SSH_AUTH_SOCK` (ssh-agent or GNOME Keyring); if unset, offers to spawn a dedicated
-  `ssh-agent` and export the socket to child sessions.
-- UI: list (`ssh-add -l` fingerprints incl. comment), add (`ssh-add <key>`; passphrase prompt via
-  PTY/askpass helper), remove all (`ssh-add -D`), remove one (`ssh-add -d <key>`).
-- .ppk: `puttygen <key.ppk> -O private-openssh -o <basename>` (v3 ppk supported by putty 0.83),
-  key import = conversion + agent add; original file never modified.
-- Per-session `ForwardAgent` toggle (Pageant-style agent forwarding for jump hosts).
+`src-tauri/src/agent.rs` + `Tools → SSH key manager…` modal
+(`src/components/KeyManagerModal.tsx`).
+
+- **Socket detection**: if `SSH_AUTH_SOCK` is already set (desktop keyring, shell-started
+  agent, …) the app adopts it (`present=true, ours=false`) and never touches it — no Start/Stop.
+  If unset, **Start agent** spawns a dedicated `ssh-agent -a <config>/agent.sock` in daemon
+  mode (verified on OpenSSH 9.x: the launcher exits immediately after printing the
+  `SSH_AUTH_SOCK`/`SSH_AGENT_PID` env lines and the agent keeps running, Pageant-like, so keys
+  survive app restarts). The record (`agent_socket` + `agent_pid`) is persisted in
+  `settings.json`; next launch re-attaches to the same daemon. **Stop agent** runs
+  `ssh-agent -k` with both env vars set (kills only our daemon) and clears the record.
+- **Export to children**: `agent::configured_socket()` is applied by `pty.rs` (`pty_open`) and
+  `sftp.rs` (`open`) as `SSH_AUTH_SOCK` on every child process, so terminal and SFTP sessions
+  use agent keys (and `ForwardAgent=yes`, below) even when the app was started from a desktop
+  launcher without the variable.
+- **Panel**: lists identities from `ssh-add -l` (bits, fingerprint, comment, type), with
+  **Add key…** (native file picker → `ssh-add <key>`), **Remove** per row and **Remove all**
+  (`ssh-add -D`). Passphrase-protected keys prompt in the modal; the passphrase is fed through
+  an askpass helper (`agent-askpass.sh`, 0700, mirroring the sftp helper) with
+  `SSH_ASKPASS_REQUIRE=force`. `ssh-add -d` needs a key **path**, so the backend records the
+  path against the fingerprint at add time (`fingerprint_of` via `ssh-keygen -lf`) — rows
+  added by other tools show “—” for remove.
+- **Forward Agent**: per-session `Node.forward_agent` toggle in the Configuration panel,
+  mapped to `-o ForwardAgent=yes` by `LaunchSpec::ssh_args()`/`sftp_args()`. It is a UI-local
+  field persisted in `settings.json` (never in the WinSSHTerm XML).
+- **.ppk**: converted by the Phase 2 importer (`puttygen -O private-openssh` into
+  `<config>/imported/`); the key manager operates on the resulting OpenSSH paths.
 
 ## UI layout (WinSSHTerm parity)
 
@@ -232,7 +255,12 @@ for sequential scripted ops (`src-tauri/src/sftp.rs`).
 
 - Rust unit tests: `xml.rs` round-trip (parse → write → parse, idempotency, escaping),
   `ssh.rs::ssh_args()` snapshot tests for port/user/key, X11/agent, SOCKS5/Local proxy, extra args,
-  and `vault.rs` encrypt/decrypt round-trip, wrong-password rejection, and non-vault-data rejection.
+  and `vault.rs` encrypt/decrypt round-trip, wrong-password rejection, and non-vault-data rejection,
+  and `agent.rs` unit tests for `ssh-add -l` parsing + `SSH_AGENT_PID` extraction.
+- Agent driver smoke test: `agent::tests::smoke_localhost_agent` (`#[ignore]` — run with
+  `cargo test --manifest-path src-tauri/Cargo.toml -- --ignored`) spawns a real `ssh-agent`
+  on a throwaway socket, adds a throwaway key, and exercises add / list / remove-one /
+  remove-all / `ssh-agent -k` (passed 2026-10-06).
 - CI (`.github/workflows/ci.yml`): on Linux — `npm ci && npm run build` (frontend) and
   `cargo check` + `cargo clippy -- -D warnings` + `cargo test` (backend, with Tauri system deps).
 
@@ -257,7 +285,8 @@ for sequential scripted ops (`src-tauri/src/sftp.rs`).
 
 - **v0.1**: 4 must-haves + session tree/tabs (shipped).
 - **v0.2**: encrypted vault (shipped in v0.2.0), PuTTY `.reg`/`.txt` + `.ppk` import and the
-  import wizard (shipped in v0.2.1), SFTP commander (shipped in v0.3.0), key manager,
-  quick-launch bar, tray, search/filter, russh in-process, jump-host editor, `.kdbx`
+  import wizard (shipped in v0.2.1), SFTP commander (shipped in v0.3.0), key manager
+  (shipped in v0.4.0).
+- **v0.3**: quick-launch bar, tray, search/filter, russh in-process, jump-host editor, `.kdbx`
   (best-effort via keepassxc-cli).
-- **v0.3**: scripts/automation (LaunchTools-style), multi-tab session grouping, session sync.
+- **v0.4**: scripts/automation (LaunchTools-style), multi-tab session grouping, session sync.

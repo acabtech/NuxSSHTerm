@@ -328,6 +328,11 @@ pub fn open(
         cmd.arg(a);
     }
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    // Export the key-manager agent socket (Phase 4) so the sftp child can use
+    // agent keys too (and ForwardAgent when the spec asks for it).
+    if let Some(sock) = crate::agent::configured_socket() {
+        cmd.env("SSH_AUTH_SOCK", &sock);
+    }
 
     let mut askpass_file = None;
     if let Some(pw) = password.filter(|p| !p.is_empty()) {

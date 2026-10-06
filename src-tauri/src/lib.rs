@@ -1,5 +1,6 @@
 //! NuxSSHTerm — Tauri backend.
 
+mod agent;
 mod importcmd;
 mod kdbx;
 mod local_fs;
@@ -67,6 +68,7 @@ pub fn run() {
         .manage(pty::PtyState::default())
         .manage(vault::VaultState::default())
         .manage(sftp::SftpState::default())
+        .manage(agent::AgentState::default())
         .invoke_handler(tauri::generate_handler![
             load_tree,
             save_tree,
@@ -103,6 +105,12 @@ pub fn run() {
             local_fs::local_rm,
             local_fs::local_rename,
             local_fs::local_remove,
+            agent::agent_status,
+            agent::agent_start,
+            agent::agent_stop,
+            agent::agent_add,
+            agent::agent_remove,
+            agent::agent_remove_all,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

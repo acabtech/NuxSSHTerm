@@ -11,14 +11,15 @@ emulation: it uses the system OpenSSH client over a PTY.
 
 ## Status
 
-**v0.3 — SFTP commander milestone.** The shell/parity UI is in place (created
+**v0.4 — Key manager milestone.** The shell/parity UI is in place (created
 in v0.1), the encrypted password vault shipped in v0.2.0, the full settings
 import story (PuTTY `.reg`/KiTTY `.txt`/WinSSHTerm XML/KeePass `.kdbx`, plus
-`.ppk` key conversion) in v0.2.1, and the dual-pane **SFTP commander**
-(WinSCP-style, F5/F6/F7/F8) in v0.3.0. The Pageant-equivalent key manager is
-next (see Roadmap).
+`.ppk` key conversion) in v0.2.1, the dual-pane **SFTP commander**
+(WinSCP-style, F5/F6/F7/F8) in v0.3.0, and the Pageant-equivalent **SSH key
+manager** (detect/spawn a dedicated `ssh-agent`, list/add/remove keys,
+per-session ForwardAgent) in v0.4.0.
 
-## What's here (v0.3)
+## What's here (v0.4)
 
 - **Tabbed terminal workspace** — multiple SSH sessions in tabs, with the
   WinSSHTerm-style window chrome (menu bar, quick strip, status bar).
@@ -46,8 +47,15 @@ next (see Roadmap).
   panes · Ctrl+R refresh · Ctrl+T terminal to host). One persistent `sftp`
   child per tab (sequential scripted transfers); vault passwords are injected
   via an `SSH_ASKPASS` helper.
+- **SSH key manager (Pageant equivalent)** — Tools → SSH key manager… adopts
+  an existing `SSH_AUTH_SOCK` or spawns a dedicated `ssh-agent` (record kept
+  in `settings.json`), lists/adds/removes keys via `ssh-add`, handles
+  passphrase-protected keys through an askpass helper, and exports the socket
+  to every terminal/SFTP child session. A per-session **Forward Agent**
+  checkbox maps to `-o ForwardAgent=yes`.
 - **Local persistence** — session tree stored under
-  `~/.config/nuxsshterm/` in the native WinSSHTerm XML format.
+  `~/.config/nuxsshterm/` in the native WinSSHTerm XML format; UI-local
+  settings (agent record, ForwardAgent flags) in `settings.json`.
 
 ## Screenshots
 
@@ -95,8 +103,8 @@ Bundles are written to `src-tauri/target/release/bundle/`:
 
 ## Roadmap (upcoming)
 
-- **SSH key manager (Pageant equivalent)** — list/add/remove keys, with
-  automatic `.ppk` conversion (both half-managed via `puttygen` already).
+- **SSH key manager (Pageant equivalent)** — detect/adopt `SSH_AUTH_SOCK` or spawn a
+  dedicated `ssh-agent`; list/add/remove keys; per-session ForwardAgent (v0.4.0).
 - **Quick-launch bar, tray icon, session reconnect, system theme**, and further
   WinSSHTerm parity.
 - **In-process SSH (russh + russh-sftp)** — byte-level transfer progress,

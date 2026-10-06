@@ -71,6 +71,10 @@ pub struct Node {
     pub custom_id: String,       // Custom Id
     #[serde(default)]
     pub custom_type: String,     // Custom Type
+    /// Forward the ssh-agent to the remote host (`-o ForwardAgent=yes`).
+    /// UI-local (Phase 4): persisted in settings.json, not in WinSSHTerm XML.
+    #[serde(default)]
+    pub forward_agent: bool,
 }
 
 impl Node {
