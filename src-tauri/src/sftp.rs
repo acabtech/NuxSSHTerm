@@ -598,7 +598,7 @@ mod tests {
         sess.kill();
 
         // --- key-auth path ---
-        spec.private_key = "/home/sam/.ssh/nux-sftp-test_ed25519".into();
+        spec.private_key = "/home/user/.ssh/nux-sftp-test_ed25519".into();
         let (sess2, _) = open("smoke-key", &spec, None).expect("key auth open");
         drive_ops(&sess2);
         sess2.kill();

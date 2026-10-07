@@ -482,7 +482,7 @@ mod tests {
 Session\\Beleaf\\Prod%20DB\\HostName=10.9.9.9\n\
 Session\\Beleaf\\Prod%20DB\\PortNumber=5432\n\
 Session\\Beleaf\\Prod%20DB\\UserName=postgres\n\
-Session\\Beleaf\\Prod%20DB\\PublicKeyFile=/home/sam/.ssh/id_ed25519\n".to_string()
+Session\\Beleaf\\Prod%20DB\\PublicKeyFile=/home/user/.ssh/id_ed25519\n".to_string()
     }
 
     fn has_warning(warnings: &[String], needle: &str) -> bool {
@@ -544,7 +544,7 @@ Session\\Beleaf\\Prod%20DB\\PublicKeyFile=/home/sam/.ssh/id_ed25519\n".to_string
         assert_eq!(db.hostname, "10.9.9.9");
         assert_eq!(db.port, "5432");
         assert_eq!(db.username, "postgres");
-        assert_eq!(db.private_key, "/home/sam/.ssh/id_ed25519");
+        assert_eq!(db.private_key, "/home/user/.ssh/id_ed25519");
     }
 
     #[test]
@@ -563,7 +563,7 @@ Session\\Beleaf\\Prod%20DB\\PublicKeyFile=/home/sam/.ssh/id_ed25519\n".to_string
     fn windows_path_detection() {
         assert!(is_windows_path("C:\\keys\\id.ppk"));
         assert!(is_windows_path("d:/x"));
-        assert!(!is_windows_path("/home/sam/.ssh/id_ed25519"));
+        assert!(!is_windows_path("/home/user/.ssh/id_ed25519"));
         assert!(!is_windows_path("~/.ssh/key.pem"));
     }
 

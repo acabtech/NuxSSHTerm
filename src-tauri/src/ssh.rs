@@ -165,12 +165,12 @@ mod tests {
             host: "h".into(),
             port: 2222,
             username: "sam".into(),
-            private_key: "/home/sam/.ssh/id_ed25519".into(),
+            private_key: "/home/user/.ssh/id_ed25519".into(),
             ..Default::default()
         };
         assert_eq!(
             s.ssh_args(),
-            vec!["-p", "2222", "-l", "sam", "-i", "/home/sam/.ssh/id_ed25519", "h"]
+            vec!["-p", "2222", "-l", "sam", "-i", "/home/user/.ssh/id_ed25519", "h"]
         );
     }
 
@@ -229,12 +229,12 @@ mod tests {
             host: "h".into(),
             port: 2222,
             username: "sam".into(),
-            private_key: "/home/sam/.ssh/id_ed25519".into(),
+            private_key: "/home/user/.ssh/id_ed25519".into(),
             ..Default::default()
         };
         assert_eq!(
             s.sftp_args(),
-            vec!["-P", "2222", "-o", "User=sam", "-i", "/home/sam/.ssh/id_ed25519", "h"]
+            vec!["-P", "2222", "-o", "User=sam", "-i", "/home/user/.ssh/id_ed25519", "h"]
         );
     }
 

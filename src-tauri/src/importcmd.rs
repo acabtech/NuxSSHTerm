@@ -156,7 +156,14 @@ Install keepassxc-cli and try again, or export the database as XML in KeePassXC 
     let text = decode_text(&bytes);
     let t = text.trim();
 
-    let (nodes, passwords, warnings, format) = if t.starts_with("<?xml")
+    let (nodes, passwords, warnings, format) = if t.contains("<WinSSHTerm_Backup") {
+            // ---- WinSSHTerm compressed backup (<Data><c n=".."> base64(gzip(xml))) ----
+            let mut n = xml::parse_backup(t)?;
+            let p = collect_passwords(&n);
+            crate::model::strip_passwords(&mut n);
+            let wn = xml_warnings(&n);
+            (n, p, wn, "WinSSHTerm backup (compressed)".into())
+        } else if t.starts_with("<?xml")
         || t.starts_with("<WinSSHTerm")
         || t.starts_with("<Node")
         || t.contains("<WinSSHTerm") {
@@ -309,6 +316,23 @@ mod tests {
         assert!(res.is_err());
     }
 
+    /// Optional end-to-end check against a real WinSSHTerm export. Set
+    /// `WINSSHTERM_BACKUP=/path/to/WinSSHTerm.xml` to run it; otherwise it is a
+    /// no-op so the suite stays portable.
+    #[test]
+    fn imports_real_backup_from_env() {
+        let Ok(path) = std::env::var("WINSSHTERM_BACKUP") else {
+            return;
+        };
+        let preview = run_import_file(path).expect("real backup should import");
+        assert!(preview.count > 0, "expected at least one session");
+        assert!(
+            preview.format.contains("backup"),
+            "expected the compressed-backup format label, got {}",
+            preview.format
+        );
+    }
+
     #[test]
     fn xml_warnings_cover_private_key_and_certificate() {
         use crate::model::Node;
@@ -323,7 +347,7 @@ mod tests {
 
         // Linux paths → no warnings.
         let mut n2 = Node::connection("linux host", "10.0.0.10", "sam", 22);
-        n2.private_key = "/home/sam/.ssh/id_ed25519".into();
+        n2.private_key = "/home/user/.ssh/id_ed25519".into();
         assert!(xml_warnings(&[n2]).is_empty());
     }
 }

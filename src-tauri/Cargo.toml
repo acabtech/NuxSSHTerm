@@ -22,12 +22,11 @@ quick-xml = "0.37"
 base64 = "0.22"
 dirs = "6"
 uuid = { version = "1", features = ["v4"] }
-# Phase 1 — encrypted vault
+flate2 = "1.1.10"
 argon2 = "0.5"
 aes-gcm = "0.10"
 rand = "0.8"
 zeroize = "1"
-# Phase 3 — SFTP commander local pane
 tokio = { version = "1", features = ["fs"] }
 tauri-plugin-dialog = "2"
 
