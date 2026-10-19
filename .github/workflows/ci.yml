@@ -47,6 +47,7 @@ jobs:
     env:
       CARGO_HOME: /ci/cache/cargo
       RUSTUP_HOME: /ci/cache/rustup
+      RUSTUP_TOOLCHAIN: stable
       CARGO_TARGET_DIR: /ci/cache/targets/${{ github.repository }}/${{ github.job }}
     steps:
       - uses: actions/checkout@v4
