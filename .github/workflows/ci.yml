@@ -5,16 +5,27 @@ on:
     branches: [main]
   pull_request:
 
+# ---------------------------------------------------------------------------
+# Local package caches
+#
+# Container jobs bind-mount subdirectories of /home/github-runner/ci-cache on
+# the runner host, so the ~1 GB of Tauri apt dependencies, the Rust toolchain,
+# the crates.io registry and the compiled artifacts are downloaded once and
+# reused by every later run instead of being re-fetched from the internet.
+# apt runs under flock so parallel runners cannot corrupt the shared cache.
+# ---------------------------------------------------------------------------
+
 jobs:
   frontend:
     name: Frontend (npm build)
     runs-on: [self-hosted, opencode-sam, nuxsshterm]
+    # The runner's own ~/.npm cache is persistent, so npm restores tarballs from
+    # the local disk instead of re-downloading them from the registry.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
       - run: npm ci
       - run: npm run build
 
@@ -24,32 +35,46 @@ jobs:
     # installed with apt-get as root. The self-hosted runner is unprivileged
     # (no sudo), so the previous `sudo apt-get install` on the host would fail.
     runs-on: [self-hosted, opencode-sam, nuxsshterm]
-    container: ubuntu:24.04
+    container:
+      image: ubuntu:24.04
+      volumes:
+        - /home/github-runner/ci-cache/apt-archives:/var/cache/apt/archives
+        - /home/github-runner/ci-cache/apt-lists:/var/lib/apt/lists
+        - /home/github-runner/ci-cache/cargo:/ci/cache/cargo
+        - /home/github-runner/ci-cache/rustup:/ci/cache/rustup
+        - /home/github-runner/ci-cache/targets:/ci/cache/targets
+        - /home/github-runner/ci-cache/locks:/ci/cache/locks
+    env:
+      CARGO_HOME: /ci/cache/cargo
+      RUSTUP_HOME: /ci/cache/rustup
+      CARGO_TARGET_DIR: /ci/cache/targets/${{ github.repository }}/${{ github.job }}
     steps:
       - uses: actions/checkout@v4
 
-      # Tauri v2 Linux build dependencies (webkit2gtk, gtk3, etc.)
-      - name: Install system dependencies
+      # Tauri v2 Linux build dependencies (webkit2gtk, gtk3, etc.), installed
+      # from the local apt cache. APT must keep the downloaded .debs for the
+      # cache to be useful, hence the explicit Keep-Downloaded-Packages.
+      - name: Install system dependencies (from the local apt cache)
         run: |
-          apt-get update
-          apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev
+          mkdir -p "$CARGO_TARGET_DIR"
+          echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/01keep-debs
+          flock /ci/cache/locks/apt.lock bash -c '
+            apt-get update
+            apt-get install -y \
+              libwebkit2gtk-4.1-dev \
+              build-essential \
+              curl \
+              wget \
+              file \
+              libxdo-dev \
+              libssl-dev \
+              libayatana-appindicator3-dev \
+              librsvg2-dev
+          '
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: src-tauri
 
       - name: cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
