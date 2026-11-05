@@ -81,12 +81,24 @@ pub fn parse_connections(xml: &str) -> Result<Vec<Node>, String> {
     Ok(roots)
 }
 
+/// The contents of a WinSSHTerm compressed backup that matter for import.
+pub struct BackupEnvelope {
+    /// Session tree from protobuf field 1 (`connections.xml`).
+    pub nodes: Vec<Node>,
+    /// WinSSHTerm `key` file (protobuf field 3, base64-decoded). Holds the
+    /// random `PasswordKey`/`SaltKey` used to encrypt connection passwords.
+    pub key_file: Option<Vec<u8>>,
+    /// `VerifyKey` attribute of the inner `<WinSSHTerm>` root, used to check
+    /// that the key file was unlocked with the correct master password.
+    pub verify_key: Option<String>,
+}
+
 /// Parse a WinSSHTerm compressed backup (`<WinSSHTerm_Backup>` with `<Data><c n="..">` chunks).
 ///
-/// WinSSHTerm's backup stores the session tree as `base64(gzip(connections.xml))` split into
-/// numbered `<c>` elements. Reassemble the chunks in document order, base64-decode, gunzip,
-/// then parse the inner XML with [`parse_connections`].
-pub fn parse_backup(xml: &str) -> Result<Vec<Node>, String> {
+/// WinSSHTerm's backup stores the session tree as `base64(gzip(protobuf))` split into
+/// numbered `<c>` elements. The protobuf envelope carries field 1 = base64(connections.xml),
+/// field 2 = settings XML, field 3 = base64(key file) and field 4 = dock layout.
+pub fn parse_backup_envelope(xml: &str) -> Result<BackupEnvelope, String> {
     let mut reader = Reader::from_str(xml);
     reader.config_mut().trim_text(false);
 
@@ -132,7 +144,8 @@ pub fn parse_backup(xml: &str) -> Result<Vec<Node>, String> {
     }
 
     // base64 → gzip bytes.
-    let compressed = B64.decode(b64.as_bytes())
+    let compressed = B64
+        .decode(b64.as_bytes())
         .map_err(|e| format!("backup payload is not valid base64: {e}"))?;
 
     // gzip → the backup payload.
@@ -142,25 +155,70 @@ pub fn parse_backup(xml: &str) -> Result<Vec<Node>, String> {
         .read_to_end(&mut plain)
         .map_err(|e| format!("backup payload is not valid gzip data: {e}"))?;
 
-    // The payload is normally a protobuf envelope (see [`protobuf_field1`]);
-    // some older/simple payloads are the connections.xml document directly.
-    let inner = if looks_like_xml(&plain) {
-        strip_bom(&String::from_utf8_lossy(&plain)).to_string()
+    // The payload is normally a protobuf envelope; some older/simple payloads
+    // are the connections.xml document directly (no key file in that case).
+    let (inner, key_file) = if looks_like_xml(&plain) {
+        (strip_bom(&String::from_utf8_lossy(&plain)).to_string(), None)
     } else {
-        let field1 = protobuf_field1(&plain).ok_or_else(|| {
+        let field1 = protobuf_field(&plain, 1).ok_or_else(|| {
             "backup payload is not a recognised WinSSHTerm envelope".to_string()
         })?;
         let xml_bytes = B64
             .decode(field1)
             .map_err(|e| format!("backup session data is not valid base64: {e}"))?;
-        strip_bom(&String::from_utf8_lossy(&xml_bytes)).to_string()
+        let key_file = protobuf_field(&plain, 3)
+            .map(|b64| B64.decode(b64))
+            .transpose()
+            .map_err(|e| format!("backup key file is not valid base64: {e}"))?;
+        (
+            strip_bom(&String::from_utf8_lossy(&xml_bytes)).to_string(),
+            key_file,
+        )
     };
 
     let nodes = parse_connections(&inner)?;
     if nodes.is_empty() {
         return Err("no sessions found in the decompressed WinSSHTerm backup".into());
     }
-    Ok(nodes)
+    Ok(BackupEnvelope {
+        nodes,
+        key_file,
+        verify_key: root_verify_key(&inner),
+    })
+}
+
+/// Parse a backup and return only the session tree (kept for compatibility).
+#[allow(dead_code)] // used by tests; import uses `parse_backup_envelope`
+pub fn parse_backup(xml: &str) -> Result<Vec<Node>, String> {
+    Ok(parse_backup_envelope(xml)?.nodes)
+}
+
+/// Extract `VerifyKey` from the inner `<WinSSHTerm ...>` root element.
+fn root_verify_key(xml: &str) -> Option<String> {
+    let mut reader = Reader::from_str(xml);
+    reader.config_mut().trim_text(false);
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e)) | Ok(Event::Empty(e)) => {
+                if e.name().as_ref() != b"WinSSHTerm" {
+                    continue;
+                }
+                let mut raw: Vec<(String, String)> = Vec::new();
+                for a in e.attributes().flatten() {
+                    let k = String::from_utf8_lossy(a.key.as_ref()).to_string();
+                    let v = a
+                        .unescape_value()
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|_| String::from_utf8_lossy(&a.value).to_string());
+                    raw.push((k, v));
+                }
+                let value = attr(&raw, "VerifyKey");
+                return (!value.is_empty()).then_some(value);
+            }
+            Ok(Event::Eof) | Err(_) => return None,
+            _ => {}
+        }
+    }
 }
 
 /// True when `bytes` looks like an XML document (optionally with a UTF-8 BOM).
@@ -197,14 +255,13 @@ fn read_varint(b: &[u8], mut i: usize) -> Option<(u64, usize)> {
     }
 }
 
-/// Extract the value of length-delimited field number 1 from a protobuf message.
+/// Extract a length-delimited field from WinSSHTerm's backup protobuf envelope.
 ///
-/// WinSSHTerm's compressed backup wraps the session tree in a protobuf envelope:
 ///   field 1 = base64(UTF-8 `connections.xml`)   ← the session tree
 ///   field 2 = base64(UTF-8 settings XML)
-///   field 3 = signature bytes
+///   field 3 = base64(`key` file)                ← password-encryption keys
 ///   field 4 = base64(UTF-16LE dock-panel layout)
-fn protobuf_field1(msg: &[u8]) -> Option<&[u8]> {
+fn protobuf_field(msg: &[u8], wanted: u64) -> Option<&[u8]> {
     let mut i = 0usize;
     while i < msg.len() {
         let (tag, ni) = read_varint(msg, i)?;
@@ -219,7 +276,7 @@ fn protobuf_field1(msg: &[u8]) -> Option<&[u8]> {
                 if end > msg.len() {
                     return None;
                 }
-                if field == 1 {
+                if field == wanted {
                     return Some(&msg[i..end]);
                 }
                 i = end;
@@ -478,6 +535,32 @@ mod tests {
         assert_eq!(first.hostname, "192.168.100.201");
         assert_eq!(first.private_key, "/home/user/.ssh/id_ed25519");
         assert_eq!(parsed[1].name, "Debian WSL");
+    }
+
+    #[test]
+    fn backup_envelope_exposes_key_file_and_verify_key() {
+        let tree = vec![Node::connection("Host", "10.0.0.1", "sam", 22)];
+        let inner = write_connections(&tree).replace(
+            "<WinSSHTerm Version='1'>",
+            "<WinSSHTerm Version='1' VerifyKey='abc123'>",
+        );
+
+        let mut msg: Vec<u8> = Vec::new();
+        let field1 = B64.encode(inner.as_bytes());
+        msg.push(0x0a);
+        write_varint(&mut msg, field1.len() as u64);
+        msg.extend_from_slice(field1.as_bytes());
+        // Field 3: base64 of a (fake) binary key file.
+        let key_file = vec![2u8, 0xde, 0xad, 0xbe, 0xef];
+        let field3 = B64.encode(&key_file);
+        msg.push(0x1a);
+        write_varint(&mut msg, field3.len() as u64);
+        msg.extend_from_slice(field3.as_bytes());
+
+        let envelope = parse_backup_envelope(&wrap_backup(&msg)).unwrap();
+        assert_eq!(envelope.nodes.len(), 1);
+        assert_eq!(envelope.key_file.as_deref(), Some(key_file.as_slice()));
+        assert_eq!(envelope.verify_key.as_deref(), Some("abc123"));
     }
 
     #[test]

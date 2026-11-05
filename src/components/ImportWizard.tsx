@@ -66,6 +66,10 @@ export function ImportWizard({
   const [merge, setMerge] = useState(true);
   const [importing, setImporting] = useState(false);
   const [note, setNote] = useState("");
+  /** WinSSHTerm master password (never persisted; only used to decrypt import). */
+  const [masterPassword, setMasterPassword] = useState("");
+  /** Explicit opt-in when importing connections without their passwords. */
+  const [importWithoutPasswords, setImportWithoutPasswords] = useState(false);
 
   useEffect(() => {
     void puttygenAvailable()
@@ -74,7 +78,7 @@ export function ImportWizard({
   }, []);
 
   const scanPath = useCallback(
-    async (value: string) => {
+    async (value: string, master = masterPassword) => {
       const p = value.trim();
       if (!p) {
         setNote(
@@ -85,9 +89,10 @@ export function ImportWizard({
       setScan({ phase: "scanning" });
       setNote("");
       try {
-        const res = await importSessionsFile(p);
+        const res = await importSessionsFile(p, master);
         setPreview(res);
         setRows(flattenRows(res));
+        setImportWithoutPasswords(false);
         setScan({ phase: "idle" });
       } catch (e) {
         setScan({ phase: "error", message: String(e) });
@@ -95,7 +100,7 @@ export function ImportWizard({
         setRows([]);
       }
     },
-    [],
+    [masterPassword],
   );
 
   // Native file picker (Phase 2 plan: "file pickers → preview tree → mapping").
@@ -152,6 +157,12 @@ export function ImportWizard({
       setNote("Select at least one session to import.");
       return;
     }
+    if (preview.needs_master_password && !importWithoutPasswords) {
+      setNote(
+        "This file has encrypted passwords. Enter the WinSSHTerm master password (or tick “Import without passwords”).",
+      );
+      return;
+    }
     setImporting(true);
     setNote("");
 
@@ -203,7 +214,7 @@ export function ImportWizard({
       warnings: allWarnings,
       merge,
     });
-  }, [rows, preview, vaultUnlocked, merge, onImport]);
+  }, [rows, preview, vaultUnlocked, merge, onImport, importWithoutPasswords]);
 
   return (
     <div className="modal-backdrop" onMouseDown={importing ? undefined : onClose}>
@@ -255,6 +266,43 @@ export function ImportWizard({
                 </div>
               )}
 
+              {preview.needs_master_password && (
+                <div className="import-warnings">
+                  <div>
+                    ⚠ {preview.encrypted_passwords} encrypted WinSSHTerm password
+                    {preview.encrypted_passwords === 1 ? "" : "s"} found. Enter the
+                    WinSSHTerm master password to decrypt them.
+                  </div>
+                  <div className="import-path-row">
+                    <input
+                      type="password"
+                      value={masterPassword}
+                      onChange={(e) => setMasterPassword(e.target.value)}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && scanPath(path, masterPassword)
+                      }
+                      placeholder="WinSSHTerm master password"
+                      autoFocus
+                    />
+                    <button
+                      className="btn primary"
+                      onClick={() => scanPath(path, masterPassword)}
+                      disabled={scan.phase === "scanning" || !masterPassword}
+                    >
+                      {scan.phase === "scanning" ? "Unlocking…" : "Unlock & rescan"}
+                    </button>
+                  </div>
+                  <label className="import-merge">
+                    <input
+                      type="checkbox"
+                      checked={importWithoutPasswords}
+                      onChange={(e) => setImportWithoutPasswords(e.target.checked)}
+                    />
+                    Import without passwords (connections only)
+                  </label>
+                </div>
+              )}
+
               {preview.passwords && Object.keys(preview.passwords).length > 0 && (
                 <div className="import-passwords-note">
                   {vaultUnlocked
@@ -262,6 +310,13 @@ export function ImportWizard({
                     : `${Object.keys(preview.passwords).length} passwords found but the vault is locked — they will NOT be imported.`}
                 </div>
               )}
+              {preview.needs_master_password &&
+                preview.encrypted_passwords > 0 &&
+                importWithoutPasswords && (
+                  <div className="import-warnings">
+                    Importing connections only — encrypted passwords will be skipped.
+                  </div>
+                )}
 
               {puttygen === false && ppkCount(rows) > 0 && (
                 <div className="import-warnings">

@@ -20,6 +20,10 @@ export interface ImportPreview {
   /** path key (ancestor names joined by "/") -> password, for the vault */
   passwords: Record<string, string>;
   warnings: string[];
+  /** encrypted passwords are present but need the WinSSHTerm master password */
+  needs_master_password: boolean;
+  /** number of encrypted password values found in the source */
+  encrypted_passwords: number;
 }
 export interface ConvertedKey {
   original: string;
@@ -27,8 +31,11 @@ export interface ConvertedKey {
   /** true when the target .pem already existed (no puttygen run) */
   was_already: boolean;
 }
-export const importSessionsFile = (path: string) =>
-  invoke<ImportPreview>("import_sessions_file", { path });
+export const importSessionsFile = (path: string, masterPassword?: string | null) =>
+  invoke<ImportPreview>("import_sessions_file", {
+    path,
+    masterPassword: masterPassword || null,
+  });
 export const puttygenAvailable = () => invoke<boolean>("puttygen_available");
 export const convertPpk = (source: string) =>
   invoke<ConvertedKey>("convert_ppk", { source });

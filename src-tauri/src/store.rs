@@ -124,14 +124,22 @@ pub fn load_tree() -> Vec<Node> {
 
 pub fn save_tree(nodes: &[Node]) -> Result<(), String> {
     // Never persist plaintext passwords — strip them before writing to disk.
-    let mut clean = nodes.to_vec();
-    crate::model::strip_passwords(&mut clean);
-    std::fs::write(connections_path(), xml::write_connections(&clean)).map_err(|e| e.to_string())?;
+    std::fs::write(connections_path(), export_xml(nodes)).map_err(|e| e.to_string())?;
     // Persist UI-local ForwardAgent flags in settings.json (not the WinSSHTerm XML).
     let mut s = load_settings();
     s.forward_agent = collect_forward_agent(nodes);
     let _ = save_settings(&s);
     Ok(())
+}
+
+/// Serialise a tree for saving/export with every password removed.
+///
+/// Vault passwords must never leave the encrypted vault: both `save_tree` and
+/// the user-facing export use this function.
+pub fn export_xml(nodes: &[Node]) -> String {
+    let mut clean = nodes.to_vec();
+    crate::model::strip_passwords(&mut clean);
+    xml::write_connections(&clean)
 }
 
 /// Import a WinSSHTerm `connections.xml` / `.settings` file into the native store.
@@ -146,6 +154,23 @@ pub fn import_connections_xml(xml_text: &str) -> Result<Vec<Node>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_xml_never_contains_passwords() {
+        let mut node = Node::connection("Prod", "prod.example", "deploy", 22);
+        node.password = "super-secret".into();
+        let tree = vec![node];
+
+        let exported = export_xml(&tree);
+
+        assert!(exported.contains("prod.example"));
+        assert!(exported.contains("deploy"));
+        assert!(!exported.contains("super-secret"), "export must strip passwords");
+        assert!(
+            exported.contains("Password=\"\""),
+            "password attribute must be blank in exports"
+        );
+    }
 
     #[test]
     fn forward_agent_flags_apply_to_real_tree() {

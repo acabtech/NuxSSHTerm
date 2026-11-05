@@ -1,6 +1,6 @@
 [package]
 name = "nuxsshterm"
-version = "0.4.0"
+version = "0.4.1"
 description = "A tabbed SSH solution for Linux — a native reimplementation of WinSSHTerm"
 authors = ["Sam Ralial"]
 edition = "2024"
@@ -25,6 +25,10 @@ uuid = { version = "1", features = ["v4"] }
 flate2 = "1.1.10"
 argon2 = "0.5"
 aes-gcm = "0.10"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+pbkdf2 = "0.12"
+sha1 = "0.10"
 rand = "0.8"
 zeroize = "1"
 tokio = { version = "1", features = ["fs"] }

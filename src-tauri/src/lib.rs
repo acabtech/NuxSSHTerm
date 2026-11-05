@@ -12,6 +12,7 @@ mod sftp;
 mod ssh;
 mod store;
 mod vault;
+mod wsst_crypto;
 mod xml;
 
 use model::Node;
@@ -50,9 +51,7 @@ fn import_connections_file(path: String) -> Result<Vec<Node>, String> {
 #[tauri::command]
 fn export_connections_file(path: String, tree: Vec<Node>) -> Result<(), String> {
     // Never write plaintext passwords to an exported file either.
-    let mut clean = tree;
-    model::strip_passwords(&mut clean);
-    std::fs::write(&path, xml::write_connections(&clean))
+    std::fs::write(&path, store::export_xml(&tree))
         .map_err(|e| e.to_string())
         .inspect_err(|e| {
             log::error("export_connections_file", e);
