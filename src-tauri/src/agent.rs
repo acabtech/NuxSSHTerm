@@ -257,20 +257,34 @@ pub fn agent_add(
 }
 
 /// Remove one identity (`ssh-add -d <path>`).
+///
+/// `ssh-add -d` takes paths to public key files, never fingerprints. The UI
+/// sends the recorded `source_path`, but a fingerprint is also accepted for
+/// backwards compatibility and resolved through the in-memory record.
 #[tauri::command]
 pub fn agent_remove(state: State<'_, AgentState>, key: String) -> Result<(), String> {
     if configured_socket().is_none() {
         return Err("no SSH agent running".into());
     }
+    let path = {
+        let inner = state.0.lock().unwrap();
+        inner.added.get(&key).cloned().unwrap_or(key)
+    };
+    if path.trim().is_empty() {
+        return Err(
+            "cannot remove identity: its source key path is unknown (it was added by another tool)"
+                .into(),
+        );
+    }
     let sock = configured_socket().unwrap_or_default();
-    let (out, err, code) = run_ssh_add(vec!["-d".to_string(), key.clone()], sock);
+    let (out, err, code) = run_ssh_add(vec!["-d".to_string(), path.clone()], sock);
     if code == 0 {
         // Forget the path (drop every entry pointing at it).
         let mut inner = state.0.lock().unwrap();
         let stale: Vec<String> = inner
             .added
             .iter()
-            .filter(|(_, p)| **p == key)
+            .filter(|(_, p)| **p == path)
             .map(|(fp, _)| fp.clone())
             .collect();
         for fp in stale {

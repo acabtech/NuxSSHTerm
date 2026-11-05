@@ -89,16 +89,24 @@ fn collect_forward_agent(nodes: &[Node]) -> HashMap<String, bool> {
 /// Apply settings-stored ForwardAgent flags onto a freshly loaded tree.
 fn apply_forward_agent(nodes: &mut [Node]) {
     let flags = load_settings().forward_agent;
-    let mut flat: Vec<(Vec<String>, Node)> = Vec::new();
-    let empty: Vec<String> = Vec::new();
-    crate::model::flatten(nodes, &empty, &mut flat);
-    for (path, mut n) in flat {
+    apply_forward_agent_flags(nodes, &flags, &mut Vec::new());
+}
+
+/// Walk the real tree in place (no clones) and assign each connection's flag
+/// from the persisted map. `flatten` clones nodes, so mutating its output never
+/// reached the tree the caller returned.
+fn apply_forward_agent_flags(
+    nodes: &mut [Node],
+    flags: &HashMap<String, bool>,
+    prefix: &mut Vec<String>,
+) {
+    for n in nodes.iter_mut() {
+        prefix.push(n.name.clone());
         if n.node_type == KIND_CONNECTION {
-            n.forward_agent = match flags.get(&path_key_of(&path)) {
-                Some(&v) => v,
-                None => false,
-            };
+            n.forward_agent = flags.get(&path_key_of(prefix)).copied().unwrap_or(false);
         }
+        apply_forward_agent_flags(&mut n.children, flags, prefix);
+        prefix.pop();
     }
 }
 
@@ -133,4 +141,58 @@ pub fn import_connections_xml(xml_text: &str) -> Result<Vec<Node>, String> {
         return Err("no sessions found in file".into());
     }
     Ok(nodes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forward_agent_flags_apply_to_real_tree() {
+        let mut nodes = vec![
+            Node::container("group", true).with_children(vec![
+                Node::connection("nested", "nested.example", "u", 22),
+            ]),
+            Node::connection("top", "top.example", "u", 22),
+        ];
+        let mut flags = HashMap::new();
+        flags.insert("group/nested".to_string(), true);
+        flags.insert("top".to_string(), true);
+
+        apply_forward_agent_flags(&mut nodes, &flags, &mut Vec::new());
+
+        assert!(nodes[0].children[0].forward_agent, "nested flag must reach the returned tree");
+        assert!(nodes[1].forward_agent, "top-level flag must reach the returned tree");
+    }
+
+    #[test]
+    fn forward_agent_flags_default_to_false() {
+        let mut nodes = vec![Node::connection("top", "top.example", "u", 22)];
+        nodes[0].forward_agent = true;
+
+        apply_forward_agent_flags(&mut nodes, &HashMap::new(), &mut Vec::new());
+
+        assert!(!nodes[0].forward_agent);
+    }
+
+    #[test]
+    fn collect_and_apply_use_the_same_path_key() {
+        let mut nodes = vec![
+            Node::container("group", true).with_children(vec![
+                Node::connection("nested", "nested.example", "u", 22),
+            ]),
+        ];
+        nodes[0].children[0].forward_agent = true;
+        let flags = collect_forward_agent(&nodes);
+
+        assert_eq!(flags.get("group/nested"), Some(&true));
+
+        let mut loaded = vec![
+            Node::container("group", true).with_children(vec![
+                Node::connection("nested", "nested.example", "u", 22),
+            ]),
+        ];
+        apply_forward_agent_flags(&mut loaded, &flags, &mut Vec::new());
+        assert!(loaded[0].children[0].forward_agent);
+    }
 }

@@ -217,17 +217,16 @@ pub fn parse_ls_line(line: &str) -> Option<SftpEntry> {
     }
     let size = tok[4].parse::<u64>().ok()?;
     let perms = tok[0];
-    let path = tok[8..].join(" ");
-    // For symlinks ls prints `link -> target`; keep the link's own name for
-    // display (the full text remains `path` for ops / F9 properties).
-    let name = if perms.starts_with('l') {
-        match path.split_once(" -> ") {
-            Some((link, _)) => link.to_string(),
-            None => base_name(&path).to_string(),
-        }
-    } else {
-        base_name(&path).to_string()
-    };
+    let mut path = tok[8..].join(" ");
+    // For symlinks `ls -la` prints `link -> target`. The ` -> target` suffix is
+    // display-only: every later op (rm/get/rm_r/F9) must use the link path
+    // itself, so strip it once here and derive the display name from that.
+    if perms.starts_with('l')
+        && let Some((link, _)) = path.split_once(" -> ")
+    {
+        path = link.to_string();
+    }
+    let name = base_name(&path).to_string();
     Some(SftpEntry {
         name,
         path,
@@ -516,7 +515,19 @@ mod tests {
         assert!(l.is_link);
         assert!(!l.is_dir);
         assert_eq!(l.name, "link");
-        assert_eq!(l.path, "link -> /target");
+        assert_eq!(l.path, "link");
+    }
+
+    #[test]
+    fn strips_symlink_target_from_full_path() {
+        // Regression: OpenSSH sftp prints full paths for symlinks, and the
+        // ` -> target` suffix must never leak into the op path.
+        let e = entry(
+            "lrwxrwxrwx   1 u g 10 Oct  5 12:34 /tmp/dir/link -> /tmp/dir/target",
+        );
+        assert!(e.is_link);
+        assert_eq!(e.path, "/tmp/dir/link");
+        assert_eq!(e.name, "link");
     }
 
     #[test]

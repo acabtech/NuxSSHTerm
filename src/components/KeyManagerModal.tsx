@@ -233,9 +233,13 @@ export function KeyManagerModal({
                       <td>
                         <button
                           className="btn"
-                          disabled={busy}
-                          title={`Remove ${k.comment || k.fingerprint} from the agent`}
-                          onClick={() => void remove(k.fingerprint)}
+                          disabled={busy || !k.source_path}
+                          title={
+                            k.source_path
+                              ? `Remove ${k.comment || k.fingerprint} from the agent`
+                              : "Cannot remove: this key was added by another tool and its source path is unknown"
+                          }
+                          onClick={() => void remove(k.source_path)}
                         >
                           Remove
                         </button>
