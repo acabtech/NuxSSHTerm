@@ -13,12 +13,12 @@ fn decode_container_name(raw: &str) -> String {
     // Some WinSSHTerm versions store container names as base64(UTF-8); real
     // exports usually store the name verbatim. Only accept a base64 decode when
     // it yields non-empty, printable UTF-8 — otherwise keep the raw value.
-    if let Ok(bytes) = B64.decode(raw.as_bytes()) {
-        if let Ok(s) = String::from_utf8(bytes) {
-            if !s.is_empty() && s.chars().all(|c| !c.is_control()) {
-                return s;
-            }
-        }
+    if let Ok(bytes) = B64.decode(raw.as_bytes())
+        && let Ok(s) = String::from_utf8(bytes)
+        && !s.is_empty()
+        && s.chars().all(|c| !c.is_control())
+    {
+        return s;
     }
     raw.to_string()
 }
@@ -123,11 +123,9 @@ pub fn parse_backup_envelope(xml: &str) -> Result<BackupEnvelope, String> {
                     cur_text.push_str(&s);
                 }
             }
-            Ok(Event::End(e)) => {
-                if e.name().as_ref() == b"c" && in_c {
-                    chunks.push(cur_text.clone());
-                    in_c = false;
-                }
+            Ok(Event::End(e)) if e.name().as_ref() == b"c" && in_c => {
+                chunks.push(cur_text.clone());
+                in_c = false;
             }
             _ => {}
         }

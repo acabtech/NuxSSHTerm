@@ -159,7 +159,7 @@ pub fn agent_start(state: State<'_, AgentState>) -> Result<AgentStatus, String> 
         return Err(format!("ssh-agent failed: {err}{err2}"));
     }
 
-    let pid = parse_agent_pid(&String::from_utf8_lossy(&out.stdout).into_owned());
+    let pid = parse_agent_pid(&String::from_utf8_lossy(&out.stdout));
     if pid.is_empty() {
         return Err("ssh-agent started but its PID could not be parsed".into());
     }
