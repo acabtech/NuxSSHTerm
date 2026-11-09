@@ -11,14 +11,7 @@ emulation: it uses the system OpenSSH client over a PTY.
 
 ## Status
 
-**v0.4 — Key manager milestone.** The shell/parity UI is in place (created
-in v0.1), the encrypted password vault shipped in v0.2.0, the full settings
-import story (PuTTY `.reg`/KiTTY `.txt`/WinSSHTerm XML/KeePass `.kdbx`, plus
-`.ppk` key conversion) in v0.2.1, the dual-pane **SFTP commander**
-(WinSCP-style, F5/F6/F7/F8) in v0.3.0, and the Pageant-equivalent **SSH key
-manager** (detect/spawn a dedicated `ssh-agent`, list/add/remove keys,
-per-session ForwardAgent) in v0.4.0. **v0.4.2** fixes saved vault passwords
-not being forwarded to terminal SSH sessions.
+**v0.4 — Usable state **
 
 ## What's here (v0.4)
 
