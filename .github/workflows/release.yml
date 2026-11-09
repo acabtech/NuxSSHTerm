@@ -42,6 +42,8 @@ jobs:
         - /home/github-runner/ci-cache/cargo:/ci/cache/cargo
         - /home/github-runner/ci-cache/targets:/ci/cache/targets
         - /home/github-runner/ci-cache/locks:/ci/cache/locks
+        # Persisted AppImage type-2 runtime (see the prefetch step).
+        - /home/github-runner/ci-cache/appimage-runtime:/ci/cache/appimage-runtime
     env:
       # The pinned binaries embed this exact registry path in dependency panic
       # locations. It is symlinked to the runner's cache in the step below.
@@ -119,6 +121,33 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      # appimagetool downloads its type-2 runtime from GitHub on every run, and
+      # that endpoint is intermittently unavailable (HTTP 504), which aborts the
+      # whole bundle step. Prefetch it once with retries into the runner cache
+      # and hand it to linuxdeploy-plugin-appimage via LDAI_RUNTIME_FILE, which
+      # skips the download entirely.
+      - name: Prefetch the AppImage runtime
+        run: |
+          set -euo pipefail
+          runtime_dir=/ci/cache/appimage-runtime
+          runtime="$runtime_dir/runtime-x86_64"
+          mkdir -p "$runtime_dir"
+          if [[ ! -s "$runtime" ]]; then
+            url="https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64"
+            for attempt in 1 2 3 4 5; do
+              echo "runtime download attempt $attempt"
+              if curl -fL --retry 5 --retry-all-errors --retry-delay 5 \
+                       --max-time 180 -o "$runtime.part" "$url"; then
+                mv "$runtime.part" "$runtime"
+                break
+              fi
+              sleep 10
+            done
+          fi
+          test -s "$runtime" || { echo "error: could not obtain the AppImage runtime" >&2; exit 1; }
+          file "$runtime"
+          echo "LDAI_RUNTIME_FILE=$runtime" >> "$GITHUB_ENV"
 
       # `tauri build` runs `beforeBuildCommand` (npm run build) itself, then
       # bundles AppImage + deb into target/release/bundle/.
