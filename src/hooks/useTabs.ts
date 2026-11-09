@@ -37,6 +37,8 @@ export function useTabs(notify: (msg: string, kind?: "info" | "success" | "error
         spec: specFromNode(node),
         target: targetOf(node),
         exited: false,
+        // vault-in-memory password, fed to ssh via the askpass helper
+        password: node.password || undefined,
       };
       pushTab(tab);
       notify(`Opening ${tab.target}`);
@@ -80,8 +82,17 @@ export function useTabs(notify: (msg: string, kind?: "info" | "success" | "error
 
   /** Terminal tab for an existing spec (commander Ctrl+T: same host). */
   const openTerminalFromSpec = useCallback(
-    (spec: LaunchSpec, title: string, target: string) => {
-      pushTab({ id: uid(), title, kind: "terminal", spec, target, exited: false });
+    (spec: LaunchSpec, title: string, target: string, password?: string) => {
+      pushTab({
+        id: uid(),
+        title,
+        kind: "terminal",
+        spec,
+        target,
+        exited: false,
+        // carry the vault password so Ctrl+T also authenticates automatically
+        password: password || undefined,
+      });
     },
     [pushTab],
   );

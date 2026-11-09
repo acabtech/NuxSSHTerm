@@ -17,7 +17,8 @@ import story (PuTTY `.reg`/KiTTY `.txt`/WinSSHTerm XML/KeePass `.kdbx`, plus
 `.ppk` key conversion) in v0.2.1, the dual-pane **SFTP commander**
 (WinSCP-style, F5/F6/F7/F8) in v0.3.0, and the Pageant-equivalent **SSH key
 manager** (detect/spawn a dedicated `ssh-agent`, list/add/remove keys,
-per-session ForwardAgent) in v0.4.0.
+per-session ForwardAgent) in v0.4.0. **v0.4.2** fixes saved vault passwords
+not being forwarded to terminal SSH sessions.
 
 ## What's here (v0.4)
 
@@ -47,6 +48,10 @@ per-session ForwardAgent) in v0.4.0.
   panes · Ctrl+R refresh · Ctrl+T terminal to host). One persistent `sftp`
   child per tab (sequential scripted transfers); vault passwords are injected
   via an `SSH_ASKPASS` helper.
+- **Automatic password login** — saved vault passwords are fed to both
+  terminal **and** SFTP sessions through per-session `SSH_ASKPASS` helpers
+  (`pty-askpass.sh` / `sftp-askpass.sh`), so no manual password prompt appears
+  after opening a connection.
 - **SSH key manager (Pageant equivalent)** — Tools → SSH key manager… adopts
   an existing `SSH_AUTH_SOCK` or spawns a dedicated `ssh-agent` (record kept
   in `settings.json`), lists/adds/removes keys via `ssh-add`, handles

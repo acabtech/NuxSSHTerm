@@ -9,6 +9,7 @@ use base64::engine::general_purpose::STANDARD as B64;
 use portable_pty::{Child, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
 
@@ -16,6 +17,16 @@ pub struct Sess {
     writer: Mutex<Box<dyn Write + Send>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
+    /// Temporary 0600 file holding the vault password for `SSH_ASKPASS`.
+    askpass_file: Option<PathBuf>,
+}
+
+impl Drop for Sess {
+    fn drop(&mut self) {
+        if let Some(f) = &self.askpass_file {
+            let _ = std::fs::remove_file(f);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -43,6 +54,36 @@ fn size(cols: u16, rows: u16) -> PtySize {
     }
 }
 
+/// Create the `SSH_ASKPASS` helper + per-session password file used to answer
+/// ssh's password prompt from a vault password.
+///
+/// Mirrors the SFTP askpass mechanism: a tiny 0700 helper cats a 0600 file
+/// holding the password; `SSH_ASKPASS_REQUIRE=force` makes ssh use it even
+/// though the session has a controlling PTY (it would otherwise prompt on the
+/// terminal and ignore askpass).
+fn askpass_setup(id: &str, password: &str) -> (PathBuf, PathBuf) {
+    let dir = crate::store::config_dir();
+    let helper = dir.join("pty-askpass.sh");
+    if !helper.exists() {
+        let _ = std::fs::write(&helper, "#!/bin/sh\ncat \"${NX_PTY_ASKPASS_FILE}\"\n");
+        let _ = std::fs::set_permissions(
+            &helper,
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        );
+    }
+    let safe_id: String = id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let file = dir.join(format!(".pty-askpass-{safe_id}"));
+    let _ = std::fs::write(&file, password);
+    let _ = std::fs::set_permissions(
+        &file,
+        std::os::unix::fs::PermissionsExt::from_mode(0o600),
+    );
+    (helper, file)
+}
+
 /// Open a terminal: spawn `ssh` (or a local shell when host is empty) inside a PTY.
 #[tauri::command]
 pub fn pty_open(
@@ -52,6 +93,7 @@ pub fn pty_open(
     spec: LaunchSpec,
     cols: u16,
     rows: u16,
+    password: Option<String>,
 ) -> Result<(), String> {
     let pair = native_pty_system()
         .openpty(size(cols, rows))
@@ -81,6 +123,21 @@ pub fn pty_open(
     // use agent keys and ForwardAgent even when launched from a desktop icon.
     if let Some(sock) = crate::agent::configured_socket() {
         cmd.env("SSH_AUTH_SOCK", &sock);
+    }
+    // Feed a vault password to ssh's password prompt via askpass. This is what
+    // makes saved passwords work for terminal sessions (sftp already does the
+    // same in `sftp::open`); without it ssh always prompts on the PTY.
+    let mut askpass_file = None;
+    if !local_shell
+        && let Some(pw) = password.filter(|p| !p.is_empty())
+    {
+        let (helper, file) = askpass_setup(&id, &pw);
+        cmd.env("SSH_ASKPASS", &helper);
+        cmd.env("SSH_ASKPASS_REQUIRE", "force");
+        // Any non-empty DISPLAY satisfies ssh's askpass engagement check.
+        cmd.env("DISPLAY", ":0");
+        cmd.env("NX_PTY_ASKPASS_FILE", &file);
+        askpass_file = Some(file);
     }
 
     let child = pair
@@ -145,6 +202,7 @@ pub fn pty_open(
             writer: Mutex::new(writer),
             master: Mutex::new(pair.master),
             child: Mutex::new(child),
+            askpass_file,
         },
     );
     Ok(())

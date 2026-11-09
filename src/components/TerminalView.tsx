@@ -77,7 +77,7 @@ export function TerminalView({ tab, active }: { tab: Tab; active: boolean }) {
       });
       if (disposed) return;
       try {
-        await ptyOpen(tab.id, tab.spec, term.cols, term.rows);
+        await ptyOpen(tab.id, tab.spec, term.cols, term.rows, tab.password);
       } catch (err) {
         term.write(`\x1b[31mFailed to start session: ${String(err)}\x1b[0m\r\n`);
       }

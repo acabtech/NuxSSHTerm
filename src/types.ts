@@ -61,7 +61,10 @@ export interface Tab {
   spec: LaunchSpec;
   target: string;
   exited: boolean;
-  /** vault password for the commander's sftp child (memory only, never saved) */
+  /**
+   * Vault password fed to this tab's ssh/sftp child via the askpass helper
+   * (memory only, never persisted).
+   */
   password?: string;
 }
 

@@ -1,4 +1,4 @@
-# NuxSSHTerm — Architecture (v0.4.1)
+# NuxSSHTerm — Architecture (v0.4.2)
 
 A Linux-native reimplementation of WinSSHTerm — **no Wine, no Windows emulation** — targeting Sam's
 Omarchy Quattro system, to replace his Windows SSH workflow completely.
@@ -144,6 +144,12 @@ ssh [-p port] [-l user] [-i key] [-X|-Y] [-o ForwardAgent=yes] [-J jump]
 - Tab strip = app state; sessions survive tab close (reconnect button) — v0.1: close = kill.
 - Host key prompt: xterm shows ssh's own prompt (pass-through) — https://
   known_hosts handled by system ssh natively.
+- **Password auth**: when a terminal tab carries a vault password, `pty_open` sets
+  `SSH_ASKPASS` to a 0700 helper (`pty-askpass.sh`) that cats a 0600 per-session
+  password file, with `SSH_ASKPASS_REQUIRE=force` and `DISPLAY=:0` (any non-empty
+  value makes ssh prefer askpass over the controlling PTY). The password file is
+  removed when the PTY session is dropped. Same mechanism as the SFTP child, so
+  saved vault passwords now authenticate terminal sessions too.
 
 ## SFTP commander (WinSCP "commander view" equivalent)
 

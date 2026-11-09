@@ -69,7 +69,8 @@ export const ptyOpen = (
   spec: LaunchSpec,
   cols: number,
   rows: number,
-) => invoke<void>("pty_open", { id, spec, cols, rows });
+  password?: string,
+) => invoke<void>("pty_open", { id, spec, cols, rows, password: password || null });
 export const ptyWrite = (id: string, data: string) =>
   invoke<void>("pty_write", { id, data });
 export const ptyResize = (id: string, cols: number, rows: number) =>

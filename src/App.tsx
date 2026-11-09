@@ -264,7 +264,7 @@ export default function App() {
             kind: "info",
             title: "About",
             message:
-              "NuxSSHTerm — v0.1 development build.\n\n" +
+              "NuxSSHTerm — v0.4.2.\n\n" +
               "A native Linux reimplementation of WinSSHTerm (no Wine).\n" +
               "Sessions via system OpenSSH over a PTY; UI modelled on WinSSHTerm 2.43.x.",
           }),
@@ -390,6 +390,7 @@ export default function App() {
                       ct.spec,
                       ct.title.replace(/ · SFTP$/, ""),
                       ct.target,
+                      ct.password,
                     )
                   }
                 />
