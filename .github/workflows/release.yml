@@ -1,0 +1,160 @@
+name: Release
+
+# Publishing a `v*` tag builds the Linux bundles and creates a GitHub release
+# with the AppImage + deb attached. The workflow can also be run manually
+# against an existing tag from the Actions tab.
+#
+# The bundles are built inside an official Arch container so the shipped
+# binaries are linked against the same glibc and toolchain as the target
+# platform (Omarchy Quattro / Arch Linux). The container bind-mounts the
+# runner's local package cache, so pacman, the Rust toolchain, crates and build
+# artifacts are reused instead of being re-downloaded for every release.
+#
+# The compiler is PINNED to the same Arch packages used by the omavrything
+# release job: `rust 1:1.99.1-1` (rustc commit 58cf8f9c3) and `lld 23.1.3-4`.
+# rustup is deliberately NOT used: even at the same version it produces
+# different binaries, and the system linker version is embedded in the output.
+# The Cargo registry path is embedded in the binaries (dependency panic
+# locations), so the build uses CARGO_HOME=/home/sam/.cargo, symlinked to the
+# runner's persistent cargo cache.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.4.2)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: build and publish release (Arch)
+    runs-on: [self-hosted, opencode-sam, nuxsshterm]
+    container:
+      image: archlinux:base-devel
+      volumes:
+        - /home/github-runner/ci-cache/pacman-pkg:/var/cache/pacman/pkg
+        - /home/github-runner/ci-cache/cargo:/ci/cache/cargo
+        - /home/github-runner/ci-cache/targets:/ci/cache/targets
+        - /home/github-runner/ci-cache/locks:/ci/cache/locks
+    env:
+      # The pinned binaries embed this exact registry path in dependency panic
+      # locations. It is symlinked to the runner's cache in the step below.
+      CARGO_HOME: /home/sam/.cargo
+      CARGO_TARGET_DIR: /ci/cache/targets/${{ github.repository }}/${{ github.job }}
+      # Bundling runs appimagetool/linuxdeploy AppImages; extract instead of
+      # mounting so it works without /dev/fuse inside the container.
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+    steps:
+      - name: Install dependencies (from the local pacman cache)
+        run: |
+          mkdir -p "$CARGO_TARGET_DIR"
+          flock /ci/cache/locks/pacman.lock \
+            pacman -Syu --noconfirm --needed --overwrite '*' \
+              git curl file openssl gtk3 webkit2gtk-4.1 librsvg \
+              libappindicator-gtk3 appmenu-gtk-module xdotool \
+              nodejs npm rust dpkg
+
+      - uses: actions/checkout@v4
+        with:
+          # Check out the tag being released, not the default branch.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Point target/ at the persistent local cache
+        run: |
+          mkdir -p "$CARGO_TARGET_DIR"
+          rm -rf target
+          ln -s "$CARGO_TARGET_DIR" target
+
+      # The Arch `rust` package and lld 23.1.3-4 are the pinned inputs. Both the
+      # linker version (in .comment) and the Cargo registry path (in dependency
+      # panic locations) are embedded in the binaries, so reproduce them exactly.
+      - name: Pin the compiler inputs
+        run: |
+          set -euo pipefail
+          lld_version=23.1.3-4
+          args=()
+          for pkg in llvm-libs lld compiler-rt; do
+            cached="/var/cache/pacman/pkg/${pkg}-${lld_version}-x86_64.pkg.tar.zst"
+            if [[ -f "$cached" ]]; then
+              args+=("$cached")
+            else
+              args+=("https://archive.archlinux.org/packages/${pkg:0:1}/${pkg}/${pkg}-${lld_version}-x86_64.pkg.tar.zst")
+            fi
+          done
+          pacman -U --noconfirm "${args[@]}"
+          mkdir -p /home/sam
+          rm -rf /home/sam/.cargo
+          ln -s /ci/cache/cargo /home/sam/.cargo
+          ld.lld --version
+
+      - name: Resolve the release tag
+        id: tag
+        run: |
+          tag="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the pinned toolchain
+        run: |
+          set -euo pipefail
+          hash -r
+          command -v rustc
+          command -v cargo
+          rustc -vV
+          cargo --version
+          ld.lld --version
+          pacman -Q rust lld llvm-libs compiler-rt glibc gcc binutils
+          test "$(rustc -vV | sed -n 's/^release: //p')" = "1.99.1"
+          test "$(rustc -vV | sed -n 's/^commit-hash: //p')" = "58cf8f9c35b355199727627d07ae34a4e2846d67"
+          cargo --version | grep -q '1.99.1'
+          pacman -Q rust | grep -q '^rust 1:1.99.1-1$'
+          ld.lld --version | grep -q 'LLD 23.1.3'
+          test "$CARGO_HOME" = "/home/sam/.cargo"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # `tauri build` runs `beforeBuildCommand` (npm run build) itself, then
+      # bundles AppImage + deb into target/release/bundle/.
+      - name: Build the bundles
+        run: npm run tauri -- build --verbose
+
+      - name: Collect release assets
+        run: |
+          set -euo pipefail
+          version="${{ steps.tag.outputs.version }}"
+          mkdir -p dist
+          cp target/release/bundle/appimage/*.AppImage dist/
+          cp target/release/bundle/deb/*.deb dist/
+          ( cd dist && sha256sum * > SHA256SUMS.txt )
+          ls -l dist
+
+      - name: Create the GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: NuxSSHTerm ${{ steps.tag.outputs.tag }}
+          files: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/SHA256SUMS.txt
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            ## NuxSSHTerm ${{ steps.tag.outputs.tag }}
+
+            ### Fixed
+            - Saved vault passwords are now forwarded to **terminal** SSH sessions, not just SFTP. Terminal tabs previously dropped the password at three layers (tab state, `ptyOpen`, and `pty_open`), so ssh always prompted interactively.
+            - `pty_open` now uses the same `SSH_ASKPASS` mechanism as the SFTP child: a 0700 helper cats a 0600 per-session password file with `SSH_ASKPASS_REQUIRE=force` and `DISPLAY=:0`; the file is removed when the session is dropped.
+            - Commander **Ctrl+T** ("terminal to host") keeps the password, so it authenticates automatically too.
+
+            ### Artifacts
+            - `NuxSSHTerm_*_amd64.AppImage` — portable build for Arch / any distro
+            - `nuxsshterm_*_amd64.deb` — Debian / Ubuntu package
+            - `SHA256SUMS.txt` — checksums for manual verification
