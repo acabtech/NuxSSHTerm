@@ -154,15 +154,18 @@ jobs:
       - name: Build the bundles
         run: npm run tauri -- build --verbose
 
+      # NOTE: `dist/` is Vite's frontend output directory, so stage the bundles
+      # in a separate folder instead of reusing that name.
       - name: Collect release assets
         run: |
           set -euo pipefail
-          version="${{ steps.tag.outputs.version }}"
-          mkdir -p dist
-          cp target/release/bundle/appimage/*.AppImage dist/
-          cp target/release/bundle/deb/*.deb dist/
-          ( cd dist && sha256sum * > SHA256SUMS.txt )
-          ls -l dist
+          stage=release-assets
+          rm -rf "$stage"
+          mkdir -p "$stage"
+          cp target/release/bundle/appimage/*.AppImage "$stage"/
+          cp target/release/bundle/deb/*.deb "$stage"/
+          ( cd "$stage" && sha256sum * > SHA256SUMS.txt )
+          ls -l "$stage"
 
       - name: Create the GitHub release
         uses: softprops/action-gh-release@v2
@@ -170,9 +173,9 @@ jobs:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: NuxSSHTerm ${{ steps.tag.outputs.tag }}
           files: |
-            dist/*.AppImage
-            dist/*.deb
-            dist/SHA256SUMS.txt
+            release-assets/*.AppImage
+            release-assets/*.deb
+            release-assets/SHA256SUMS.txt
           fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
