@@ -190,11 +190,11 @@ export function CommanderView({ tab, active, onToast, onOpenTerminal }: Props) {
   const selectedEntry = useCallback(
     (side: Side) => {
       if (side === "remote") {
-        const n = sel.remote;
-        return n ? remoteEntries.find((e) => e.name === n) ?? null : null;
+        const key = sel.remote;
+        return key ? remoteEntries.find((e) => e.path === key) ?? null : null;
       }
-      const n = sel.local;
-      return n ? localEntries.find((e) => e.name === n) ?? null : null;
+      const key = sel.local;
+      return key ? localEntries.find((e) => e.name === key) ?? null : null;
     },
     [sel, remoteEntries, localEntries],
   );

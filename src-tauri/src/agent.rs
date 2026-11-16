@@ -108,10 +108,21 @@ pub fn configured_socket() -> Option<String> {
 #[tauri::command]
 pub fn agent_status(state: State<'_, AgentState>) -> AgentStatus {
     if let Some(sock) = configured_socket() {
-        // Ours when we persist it ourselves (env sockets are never ours).
         let ours = env_socket().is_none();
         let (out, err, code) = run_ssh_add(vec!["-l".to_string()], sock.clone());
         let (alive, mut keys) = parse_add_l(&out, &err, code);
+        if !alive {
+            if env_socket().is_none() {
+                let _ = std::fs::remove_file(&sock);
+                crate::store::set_agent_record("", "");
+            }
+            return AgentStatus {
+                present: false,
+                ours: false,
+                socket: None,
+                keys: Vec::new(),
+            };
+        }
         let added = state.0.lock().unwrap().added.clone();
         for k in &mut keys {
             if let Some(p) = added.get(&k.fingerprint) {
@@ -119,9 +130,9 @@ pub fn agent_status(state: State<'_, AgentState>) -> AgentStatus {
             }
         }
         AgentStatus {
-            present: alive,
-            ours: alive && ours,
-            socket: if alive { Some(sock) } else { None },
+            present: true,
+            ours,
+            socket: Some(sock),
             keys,
         }
     } else {
@@ -137,8 +148,21 @@ pub fn agent_status(state: State<'_, AgentState>) -> AgentStatus {
 /// Spawn a dedicated `ssh-agent` (only when no agent is usable) and adopt it.
 #[tauri::command]
 pub fn agent_start(state: State<'_, AgentState>) -> Result<AgentStatus, String> {
-    if configured_socket().is_some() {
-        return Ok(agent_status(state));
+    if let Some(sock) = configured_socket() {
+        let (out, err, code) = run_ssh_add(vec!["-l".to_string()], sock.clone());
+        let (alive, _) = parse_add_l(&out, &err, code);
+        if alive {
+            return Ok(agent_status(state));
+        }
+        // dead: clear persisted record/file if it was ours/persisted
+        if env_socket().is_none() {
+            let _ = std::fs::remove_file(&sock);
+            crate::store::set_agent_record("", "");
+        } else {
+            // external SSH_AUTH_SOCK is dead; we cannot override it here, but
+            // better to proceed and try spawning our own dedicated agent.
+            let _ = std::fs::remove_file(crate::store::config_dir().join("agent.sock"));
+        }
     }
 
     let dir = crate::store::config_dir();

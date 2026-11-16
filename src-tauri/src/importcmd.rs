@@ -366,6 +366,9 @@ pub fn convert_ppk(source: String) -> Result<ConvertedKey, String> {
 }
 
 fn convert_ppk_impl(source: String) -> Result<ConvertedKey, String> {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+
     if !program_on_path("puttygen") {
         return Err(
             "puttygen is not installed — install putty-tools (puttygen) to convert .ppk keys.".into(),
@@ -382,16 +385,30 @@ fn convert_ppk_impl(source: String) -> Result<ConvertedKey, String> {
         .unwrap_or("key".into());
     let dir = crate::store::config_dir().join("imported");
     let _ = std::fs::create_dir_all(&dir);
-    let out_path = dir.join(format!("{stem}.pem"));
+
+    // Unique per source path to avoid collisions between same-named .ppk files.
+    let mut hasher = DefaultHasher::new();
+    source.hash(&mut hasher);
+    let hash = format!("{:016x}", hasher.finish());
+    let out_name = format!("{stem}-{hash}.pem");
+    let out_path = dir.join(&out_name);
     let converted = out_path.to_string_lossy().to_string();
 
     if out_path.exists() {
-        // Already converted on an earlier import.
-        return Ok(ConvertedKey {
-            original: source.clone(),
-            converted,
-            was_already: true,
-        });
+        // Treat zero-length (interrupted/failed) file as absent.
+        if let Ok(meta) = std::fs::metadata(&out_path) {
+            if meta.len() == 0 {
+                let _ = std::fs::remove_file(&out_path);
+            } else {
+                return Ok(ConvertedKey {
+                    original: source.clone(),
+                    converted,
+                    was_already: true,
+                });
+            }
+        } else {
+            // If we can't stat, try to proceed to convert (will overwrite/fail clearly).
+        }
     }
 
     let mut cmd = std::process::Command::new("puttygen");
