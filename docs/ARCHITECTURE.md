@@ -1,4 +1,4 @@
-# NuxSSHTerm — Architecture (v0.4.2)
+# NuxSSHTerm — Architecture (v0.5.0)
 
 A Linux-native reimplementation of WinSSHTerm — **no Wine, no Windows emulation** — targeting Sam's
 Omarchy Quattro system, to replace his Windows SSH workflow completely.
