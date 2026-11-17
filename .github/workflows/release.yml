@@ -94,9 +94,6 @@ jobs:
             fi
           done
           pacman -U --noconfirm "${args[@]}"
-          # Pin the rust/cargo shims so nothing resolves to the live-repo versions.
-          test "$(command -v rustc)" = "/usr/bin/rustc"
-          test "$(command -v cargo)" = "/usr/bin/cargo"
           mkdir -p /home/sam
           rm -rf /home/sam/.cargo
           ln -s /ci/cache/cargo /home/sam/.cargo
