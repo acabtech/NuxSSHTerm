@@ -14,6 +14,9 @@ name: Release
 # release job: `rust 1:1.99.1-1` (rustc commit 58cf8f9c3) and `lld 23.1.3-4`.
 # rustup is deliberately NOT used: even at the same version it produces
 # different binaries, and the system linker version is embedded in the output.
+# NOTE: the pinned `rust` (and the lld triple) are re-installed from
+# archive.archlinux.org in "Pin the compiler inputs" because the live repos
+# roll forward (e.g. rust 1:1.100.0) and would silently break reproducibility.
 # The Cargo registry path is embedded in the binaries (dependency panic
 # locations), so the build uses CARGO_HOME=/home/sam/.cargo, symlinked to the
 # runner's persistent cargo cache.
@@ -60,7 +63,7 @@ jobs:
             pacman -Syu --noconfirm --needed --overwrite '*' \
               git curl file openssl gtk3 webkit2gtk-4.1 librsvg \
               libappindicator-gtk3 appmenu-gtk-module xdotool \
-              nodejs npm rust dpkg
+              nodejs npm dpkg
 
       - uses: actions/checkout@v4
         with:
@@ -79,17 +82,21 @@ jobs:
       - name: Pin the compiler inputs
         run: |
           set -euo pipefail
-          lld_version=23.1.3-4
           args=()
-          for pkg in llvm-libs lld compiler-rt; do
-            cached="/var/cache/pacman/pkg/${pkg}-${lld_version}-x86_64.pkg.tar.zst"
+          for spec in llvm-libs=23.1.3-4 lld=23.1.3-4 compiler-rt=23.1.3-4 rust=1:1.99.1-1; do
+            pkg="${spec%%=*}"
+            ver="${spec#*=}"
+            cached="/var/cache/pacman/pkg/${pkg}-${ver}-x86_64.pkg.tar.zst"
             if [[ -f "$cached" ]]; then
               args+=("$cached")
             else
-              args+=("https://archive.archlinux.org/packages/${pkg:0:1}/${pkg}/${pkg}-${lld_version}-x86_64.pkg.tar.zst")
+              args+=("https://archive.archlinux.org/packages/${pkg:0:1}/${pkg}/${pkg}-${ver}-x86_64.pkg.tar.zst")
             fi
           done
           pacman -U --noconfirm "${args[@]}"
+          # Pin the rust/cargo shims so nothing resolves to the live-repo versions.
+          test "$(command -v rustc)" = "/usr/bin/rustc"
+          test "$(command -v cargo)" = "/usr/bin/cargo"
           mkdir -p /home/sam
           rm -rf /home/sam/.cargo
           ln -s /ci/cache/cargo /home/sam/.cargo
