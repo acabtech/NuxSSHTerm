@@ -122,6 +122,24 @@ export function useTabs(notify: (msg: string, kind?: "info" | "success" | "error
     });
   }, []);
 
+  /** Close without touching which tab is active (used by Close pane). */
+  const closeTabKeepActive = useCallback((id: string) => {
+    setTabs((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  /** Reorder the tab strip: move `fromId` to `toId`'s position. */
+  const reorderTabs = useCallback((fromId: string, toId: string) => {
+    setTabs((prev) => {
+      const from = prev.findIndex((t) => t.id === fromId);
+      const to = prev.findIndex((t) => t.id === toId);
+      if (from < 0 || to < 0 || from === to) return prev;
+      const next = [...prev];
+      const [m] = next.splice(from, 1);
+      next.splice(to, 0, m);
+      return next;
+    });
+  }, []);
+
   const closeOthers = useCallback((id: string) => {
     setTabs((prev) => prev.filter((t) => t.id === id));
     setActiveTab(id);
@@ -159,6 +177,8 @@ export function useTabs(notify: (msg: string, kind?: "info" | "success" | "error
     openTerminalFromSpec,
     openLocalShell,
     closeTab,
+    closeTabKeepActive,
+    reorderTabs,
     closeOthers,
     closeAllTabs,
     pasteIntoActive,

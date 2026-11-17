@@ -25,6 +25,50 @@ pub fn settings_path() -> PathBuf {
     config_dir().join("settings.json")
 }
 
+/// Terminal rendering preferences (xterm.js), persisted so they survive restarts.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TerminalSettings {
+    /// xterm.js `fontSize` in CSS pixels.
+    pub font_size: u32,
+    /// xterm.js `scrollback` (buffer lines kept per pane).
+    pub scrollback: u32,
+    /// xterm.js `cursorBlink`.
+    pub cursor_blink: bool,
+}
+
+impl Default for TerminalSettings {
+    fn default() -> Self {
+        Self { font_size: 13, scrollback: 10000, cursor_blink: true }
+    }
+}
+
+/// The v0.5.0 modernized UI chrome settings (design-system tweaks + terminal).
+/// Everything here is non-secret and safe to store in plain `settings.json`.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UiSettings {
+    /// "comfortable" | "compact" — chrome density.
+    pub density: String,
+    /// UI font scale multiplier (0.9–1.15).
+    pub font_scale: f64,
+    /// Show the configuration block under the connections rail.
+    pub show_config: bool,
+    /// Terminal rendering preferences.
+    pub terminal: TerminalSettings,
+}
+
+impl Default for UiSettings {
+    fn default() -> Self {
+        Self {
+            density: "comfortable".to_string(),
+            font_scale: 1.0,
+            show_config: true,
+            terminal: TerminalSettings::default(),
+        }
+    }
+}
+
 /// NuxSSHTerm's own non-secret settings (kept out of the WinSSHTerm XML).
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Settings {
@@ -38,6 +82,9 @@ pub struct Settings {
     /// vault uses (ancestor names joined by "/").
     #[serde(default)]
     pub forward_agent: HashMap<String, bool>,
+    /// Modernized UI chrome preferences (v0.5.0).
+    #[serde(default)]
+    pub ui: UiSettings,
 }
 
 pub fn load_settings() -> Settings {
@@ -57,6 +104,18 @@ pub fn save_settings(settings: &Settings) -> Result<(), String> {
 pub fn agent_record() -> (String, String) {
     let s = load_settings();
     (s.agent_socket, s.agent_pid)
+}
+
+/// Load the modernized UI chrome settings (v0.5.0).
+pub fn get_ui_settings() -> UiSettings {
+    load_settings().ui
+}
+
+/// Persist the modernized UI chrome settings, preserving the other settings.
+pub fn set_ui_settings(ui: &UiSettings) -> Result<(), String> {
+    let mut s = load_settings();
+    s.ui = ui.clone();
+    save_settings(&s)
 }
 
 /// Persist the dedicated-agent record (empty strings clear it).

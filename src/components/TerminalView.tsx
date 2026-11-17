@@ -3,13 +3,35 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { base64ToBytes, onPtyData, onPtyExit, ptyClose, ptyOpen, ptyResize, ptyWrite } from "../api";
-import type { Tab } from "../types";
+import type { Tab, TerminalSettings } from "../types";
 
 /**
  * One xterm.js terminal bound to one PTY session.
- * All tabs stay mounted so sessions survive tab switches; hidden panes use `visibility`.
+ *
+ * v0.5.0 mount model: App keeps exactly one TerminalView mounted per tab and
+ * relocates its DOM into a pane slot via `createPortal` (see TabContent.tsx),
+ * so the terminal survives tiling, tab drags and page switches. The root is a
+ * plain `.term-pane` filling its slot; no `hidden` classes anymore.
  */
-export function TerminalView({ tab, active }: { tab: Tab; active: boolean }) {
+
+/** tab.id -> live Terminal, so menu actions can reach the right instance. */
+const terms = new Map<string, Terminal>();
+
+/**
+ * Copy the current xterm selection for `tabId` into the clipboard.
+ * Returns false when there is no such terminal or no selection active
+ * (the caller then falls back to the system-clipboard copy path).
+ */
+export function termCopySelection(tabId: string): boolean {
+  const term = terms.get(tabId);
+  if (!term || !term.hasSelection()) return false;
+  const sel = term.getSelection();
+  if (!sel) return false;
+  void navigator.clipboard.writeText(sel).catch(() => {});
+  return true;
+}
+
+export function TerminalView({ tab, active, term: termSettings }: { tab: Tab; active: boolean; term: TerminalSettings }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -21,13 +43,13 @@ export function TerminalView({ tab, active }: { tab: Tab; active: boolean }) {
     if (!host || termRef.current) return;
 
     const term = new Terminal({
-      fontFamily: 'ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", Consolas, monospace',
-      fontSize: 13,
-      cursorBlink: true,
-      scrollback: 10000,
+      fontFamily: '"JetBrains Mono", ui-monospace, "DejaVu Sans Mono", Consolas, monospace',
+      fontSize: termSettings.fontSize,
+      cursorBlink: termSettings.cursorBlink,
+      scrollback: termSettings.scrollback,
       allowProposedApi: true,
       theme: {
-        background: "#0d1b2a",
+        background: "#0b1017",
         foreground: "#d4d4d4",
         cursor: "#d4d4d4",
         selectionBackground: "#2b4a68",
@@ -52,6 +74,7 @@ export function TerminalView({ tab, active }: { tab: Tab; active: boolean }) {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
+    terms.set(tab.id, term);
     try {
       fit.fit();
     } catch {
@@ -103,14 +126,30 @@ export function TerminalView({ tab, active }: { tab: Tab; active: boolean }) {
       onDataSub.dispose();
       unData?.();
       unExit?.();
+      terms.delete(tab.id);
       void ptyClose(tab.id).catch(() => {});
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
     };
-    // tab.id is the session identity; spec/title changes must not respawn the pty
+    // tab.id is the session identity; spec/title/settings changes must not respawn the pty
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.id]);
+
+  // live-apply terminal settings without respawning
+  useEffect(() => {
+    const t = termRef.current;
+    if (!t) return;
+    t.options.fontSize = termSettings.fontSize;
+    t.options.cursorBlink = termSettings.cursorBlink;
+    t.options.scrollback = termSettings.scrollback;
+    try {
+      fitRef.current?.fit();
+      void ptyResize(tab.id, t.cols, t.rows).catch(() => {});
+    } catch {
+      /* ignore */
+    }
+  }, [termSettings.fontSize, termSettings.cursorBlink, termSettings.scrollback, tab.id]);
 
   // refit + focus when this tab becomes visible
   useEffect(() => {
@@ -129,8 +168,8 @@ export function TerminalView({ tab, active }: { tab: Tab; active: boolean }) {
   }, [active, tab.id]);
 
   return (
-    <div className={`term-pane${active ? "" : " hidden"}`}>
-      <div ref={hostRef} style={{ height: "100%" }} />
+    <div className="term-pane">
+      <div className="term-host" ref={hostRef} />
       {exited && (
         <div className="term-missing">
           Session closed. Press the ✕ on the tab to close it, or reopen the connection.

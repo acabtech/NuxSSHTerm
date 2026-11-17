@@ -1,11 +1,25 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+// App shell (v0.5.0 modernization): dark design-token chrome, tileable
+// panes (WorkArea + useLayout), draggable tabs, live settings (useSettings)
+// and the new six-menu surface (menuActions).
+//
+// Mount model: every open tab is mounted EXACTLY ONCE inside a hidden
+// `.content-stage` container (so PTY/SFTP sessions survive tab switches,
+// tiling changes and the workspace/settings page switch). The visible DOM
+// of each tab is relocated with createPortal into its leaf's `.pane-slot`
+// — see TabContent.tsx. `activeLeafId` is the single source of truth for
+// "which tab is current"; useTabs' own activeTab is synced to it so
+// clipboard/paste helpers keep working.
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MenuBar } from "./components/MenuBar";
 import { ConfigPanel } from "./components/ConfigPanel";
 import { SessionTree, type TreeCallbacks } from "./components/SessionTree";
 import { StatusBar } from "./components/StatusBar";
 import { TabStrip } from "./components/TabStrip";
-import { TerminalView } from "./components/TerminalView";
-import { CommanderView } from "./components/CommanderView";
+import { TabContent } from "./components/TabContent";
+import { WorkArea } from "./components/WorkArea";
+import { SettingsPage } from "./components/SettingsPage";
+import { Icon } from "./components/Icon";
 import { ImportWizard } from "./components/ImportWizard";
 import { ToastStack } from "./components/Toast";
 import { VaultModal, type VaultModalKind } from "./components/VaultModal";
@@ -14,15 +28,37 @@ import { useSessionTree } from "./hooks/useSessionTree";
 import { useTabs } from "./hooks/useTabs";
 import { useToasts, type ToastKind } from "./hooks/useToasts";
 import { useVault } from "./hooks/useVault";
+import { useSettings } from "./hooks/useSettings";
+import { useRevealConfigDir } from "./hooks/useRevealConfigDir";
+import {
+  collectLeaves,
+  findLeafByTab,
+  moveTabToLeaf,
+  neighborLeaf,
+  splitLeaf,
+  useLayout,
+} from "./hooks/useLayout";
 import { buildMenus } from "./lib/menuActions";
-import { emptyNode, type SessionNode } from "./types";
+import { emptyNode, type SessionNode, type Tab } from "./types";
 import { applyPasswords, clearPasswords, getAt, insertAt, pathKey } from "./lib/tree";
+
+const SHORTCUTS = [
+  ["Ctrl + T", "New local shell"],
+  ["Ctrl + W", "Close current tab"],
+  ["Ctrl + Shift + C", "Copy terminal selection"],
+  ["Ctrl + V", "Paste into terminal"],
+  ["Ctrl + ,", "Toggle Settings page"],
+  ["Drag tab → pane", "Move the session (swap)"],
+  ["Drag tab → gutter", "Split pane and drop there"],
+  ["Drag gutter", "Resize panes"],
+];
 
 type Modal =
   | { kind: "path"; action: "export"; title: string; value: string }
   | { kind: "import-sessions" }
   | { kind: "key-manager" }
   | { kind: "info"; title: string; message: string }
+  | { kind: "shortcuts" }
   | { kind: "vault-init" }
   | { kind: "vault-unlock" }
   | { kind: "vault-reset" }
@@ -34,6 +70,7 @@ export default function App() {
   const [modal, setModal] = useState<Modal>(null);
   const [ctx, setCtx] = useState<{ x: number; y: number; path: number[] } | null>(null);
   const [tabCtx, setTabCtx] = useState<{ x: number; y: number; id: string } | null>(null);
+  const [page, setPage] = useState<"workspace" | "settings">("workspace");
 
   // notify drives both the status-bar line and the toast stack.
   const notify = useCallback(
@@ -43,6 +80,8 @@ export default function App() {
     },
     [push],
   );
+
+  const { ui, update: patchUi, updateTerminal, save: saveSettings } = useSettings(notify);
 
   const vault = useVault(notify);
   const {
@@ -74,21 +113,159 @@ export default function App() {
     runExport,
   } = treeApi;
 
+  const openConfigFolder = useRevealConfigDir(configDir, notify);
+
   const tabsApi = useTabs(notify);
   const {
     tabs,
-    activeTab,
     setActiveTab,
-    currentTab,
     openSession,
     openCommander,
     openTerminalFromSpec,
     openLocalShell,
     closeTab,
+    closeTabKeepActive,
+    reorderTabs,
     closeOthers,
     closeAllTabs,
     pasteIntoActive,
   } = tabsApi;
+
+  /* ------------------------------ layout ------------------------------ */
+
+  const { layout, setLayout, split, close: closeLeafId, resize, reconcile } = useLayout();
+  const [activeLeafId, setActiveLeafId] = useState<string>("l1");
+
+  // leaf slot DOM elements, reported by WorkArea via onSlot.
+  const slotEls = useRef(new Map<string, HTMLElement>());
+  const [slotsVersion, bumpSlots] = useState(0);
+
+  const onSlot = useCallback((leafId: string, el: HTMLElement | null) => {
+    if (el) slotEls.current.set(leafId, el);
+    else slotEls.current.delete(leafId);
+    bumpSlots((n) => n + 1);
+  }, []);
+
+  // The leaf/tab model: activeLeafId is the single source of truth.
+  const currentLeaf = collectLeaves(layout).find((l) => l.id === activeLeafId) ?? null;
+  const currentTabId = currentLeaf?.tabId ?? null;
+  const currentTab = tabs.find((t) => t.id === currentTabId) ?? null;
+
+  // Sync useTabs' own activeTab (clipboard/paste helpers rely on it).
+  useEffect(() => {
+    setActiveTab(currentTabId);
+  }, [currentTabId, setActiveTab]);
+
+  // Reconcile the layout tree whenever the tab set changes: prune leaves of
+  // closed tabs, place newly opened tabs (preferring the active leaf).
+  const tabIdsKey = tabs.map((t) => t.id).join(",");
+  useEffect(() => {
+    reconcile(tabs.map((t) => t.id), activeLeafId);
+  }, [tabIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keep the active leaf valid after any prune/normalize.
+  useEffect(() => {
+    const leaves = collectLeaves(layout);
+    if (!leaves.some((l) => l.id === activeLeafId)) {
+      const hit = currentTabId ? findLeafByTab(layout, currentTabId) : null;
+      setActiveLeafId(hit ?? leaves[0]?.id ?? "l1");
+    }
+  }, [layout, activeLeafId, currentTabId]);
+
+  // tabId -> portal target (the leaf slot currently showing it, or null = parked)
+  const targetForTabId = useMemo(() => {
+    const out: Record<string, HTMLElement | null> = {};
+    for (const l of collectLeaves(layout)) {
+      out[l.tabId ?? ""] = l.tabId ? slotEls.current.get(l.id) ?? null : null;
+    }
+    return out;
+    // slotsVersion re-triggers after callback-refs register new leaf slots
+  }, [layout, tabs, page, slotsVersion]);
+
+  /* ----------------------------- handlers ----------------------------- */
+
+  const selectTab = useCallback(
+    (id: string) => {
+      const leafId = findLeafByTab(layout, id);
+      if (leafId) setActiveLeafId(leafId);
+      setPage("workspace");
+    },
+    [layout],
+  );
+
+  const handleMoveTab = useCallback(
+    (leafId: string, tabId: string) => {
+      setLayout((t) => moveTabToLeaf(t, leafId, tabId));
+      setActiveLeafId(leafId);
+    },
+    [setLayout],
+  );
+
+  const splitActive = useCallback(
+    (dir: "row" | "col") => {
+      split(activeLeafId, dir);
+    },
+    [split, activeLeafId],
+  );
+
+  /** Drop a tab onto a gutter: split the neighbor leaf and move the tab in. */
+  const splitForTab = useCallback(
+    (leafId: string, tabId: string, dir: "row" | "col") => {
+      setLayout((t) => {
+        const splitNode = splitLeaf(t, leafId, null, dir);
+        const after = collectLeaves(splitNode);
+        const empty = after.find((l) => l.tabId === null);
+        return empty ? moveTabToLeaf(splitNode, empty.id, tabId) : splitNode;
+      });
+      setActiveLeafId(leafId);
+    },
+    [setLayout],
+  );
+
+  const handleClosePane = useCallback(
+    (leafId: string) => {
+      const leaf = collectLeaves(layout).find((l) => l.id === leafId);
+      const tabId = leaf?.tabId ?? null;
+      const nb = neighborLeaf(layout, leafId);
+      if (tabId) closeTabKeepActive(tabId);
+      closeLeafId(leafId);
+      const next = nb && collectLeaves(layout).some((l) => l.id === nb) ? nb : "l1";
+      setActiveLeafId(next);
+    },
+    [layout, closeTabKeepActive, closeLeafId],
+  );
+
+  /** Ctrl+W / tab ✕: close the tab; if it was in the active leaf, move focus. */
+  const handleCloseTab = useCallback(
+    (id: string) => {
+      const wasActive = id === currentTabId;
+      closeTab(id);
+      if (wasActive) {
+        const nb = neighborLeaf(layout, activeLeafId);
+        if (nb) setActiveLeafId(nb);
+      }
+    },
+    [closeTab, currentTabId, layout, activeLeafId],
+  );
+
+  const handleOpenTerminalFromCommander = useCallback(
+    (ct: Tab) => {
+      openTerminalFromSpec(ct.spec, ct.title.replace(/ · SFTP$/, ""), ct.target, ct.password);
+      setPage("workspace");
+    },
+    [openTerminalFromSpec],
+  );
+
+  // When a tab is newly opened (reconcile placed it), focus its leaf once.
+  const lastTabCount = useRef(tabs.length);
+  useEffect(() => {
+    if (tabs.length > lastTabCount.current) {
+      const nt = tabs[tabs.length - 1];
+      const leafId = findLeafByTab(layout, nt?.id ?? "");
+      if (leafId) setActiveLeafId(leafId);
+    }
+    lastTabCount.current = tabs.length;
+  }, [tabIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // open a session, showing the "no host configured" modal when needed.
   const openSessionChecked = useCallback(
@@ -104,9 +281,19 @@ export default function App() {
             `Configuration panel, or import your real WinSSHTerm settings via ` +
             `File → Import connections…`,
         });
+      } else if (res.ok) {
+        setPage("workspace");
       }
     },
     [openSession],
+  );
+
+  const openCommanderChecked = useCallback(
+    (node: SessionNode) => {
+      const res = openCommander(node);
+      if (res.ok) setPage("workspace");
+    },
+    [openCommander],
   );
 
   /* ------------------------------ vault ------------------------------ */
@@ -152,7 +339,7 @@ export default function App() {
     [vaultStatus.unlocked, selectedPath, tree, vaultPutPassword, updateNode, notify],
   );
 
-  // Settings import is now the Phase 2 wizard: preview → map → merge/save.
+  // Settings import is the Phase 2 wizard: preview → map → merge/save.
   const handleImportSessions = useCallback(
     (nodes: SessionNode[], summary: { count: number; format: string; warnings: string[]; merge: boolean }) => {
       setTree((t) => (summary.merge ? [...t, ...nodes] : nodes));
@@ -218,9 +405,14 @@ export default function App() {
   const menus = useMemo(
     () =>
       buildMenus({
-        configDir,
         selected,
-        selectedPath,
+        activeTabId: currentTabId,
+        currentKind: currentTab?.kind ?? null,
+        onNewLocalShell: () => {
+          openLocalShell();
+          setPage("workspace");
+        },
+        onNewSession: () => addSession(false),
         onImport: () => setModal({ kind: "import-sessions" }),
         onExport: () =>
           setModal({
@@ -229,6 +421,29 @@ export default function App() {
             title: "Export connections in WinSSHTerm format",
             value: `${configDir}/connections-export.xml`,
           }),
+        onOpenConfigFolder: openConfigFolder,
+        onLockVault: () => {
+          void vaultLock()
+            .then(() => notify("Vault locked"))
+            .catch((e) => notify(`Lock failed: ${String(e)}`, "error"));
+        },
+        vaultUnlocked: vaultStatus.unlocked,
+        onCopy: () => notify("Copy: no active terminal selection"),
+        onPaste: () => void pasteIntoActive(),
+        onToggleConfig: () => patchUi({ showConfig: !ui.showConfig }),
+        onSplitActive: splitActive,
+        onWorkspace: () => setPage("workspace"),
+        onSettings: () => setPage((p) => (p === "settings" ? "workspace" : "settings")),
+        onConnect: () => {
+          if (selected) openSessionChecked(selected);
+        },
+        onDisconnect: () => {
+          if (currentTabId) handleCloseTab(currentTabId);
+        },
+        onOpenSftp: () => {
+          if (selected) openCommanderChecked(selected);
+        },
+        onKeyManager: () => setModal({ kind: "key-manager" }),
         onMasterPassword: () => {
           if (vaultStatus.unlocked) {
             setModal({
@@ -242,43 +457,36 @@ export default function App() {
             setModal(vaultStatus.initialized ? { kind: "vault-unlock" } : { kind: "vault-init" });
           }
         },
-        onLockVault: () => {
-          void vaultLock()
-            .then(() => notify("Vault locked"))
-            .catch((e) => notify(`Lock failed: ${String(e)}`, "error"));
-        },
-        vaultUnlocked: vaultStatus.unlocked,
-        onConfigFolder: () => setModal({ kind: "info", title: "Config folder", message: configDir }),
-        onExpandAll: expandAll,
-        onAddSession: addSession,
-        onConnect: () => {
-          if (selected) openSessionChecked(selected);
-        },
-        onCopyFiles: () => {
-          if (selected) openCommander(selected);
-        },
-        onKeyManager: () => setModal({ kind: "key-manager" }),
-        onOpenLocalShell: openLocalShell,
+        onShortcuts: () => setModal({ kind: "shortcuts" }),
         onAbout: () =>
           setModal({
             kind: "info",
-            title: "About",
+            title: "About NuxSSHTerm",
             message:
-              "NuxSSHTerm — v0.4.2.\n\n" +
+              "NuxSSHTerm — v0.5.0.\n\n" +
               "A native Linux reimplementation of WinSSHTerm (no Wine).\n" +
-              "Sessions via system OpenSSH over a PTY; UI modelled on WinSSHTerm 2.43.x.",
+              "Sessions via system OpenSSH over a PTY; UI modelled on WinSSHTerm 2.43.x.\n" +
+              "Modernized chrome: tileable panes, draggable tabs, persisted appearance settings.",
           }),
       }),
     [
-      configDir,
       selected,
-      selectedPath,
-      expandAll,
-      addSession,
-      openSessionChecked,
+      currentTabId,
+      currentTab?.kind,
       openLocalShell,
+      addSession,
+      configDir,
+      openConfigFolder,
       vaultStatus.unlocked,
+      vaultStatus.initialized,
       vaultLock,
+      pasteIntoActive,
+      ui.showConfig,
+      patchUi,
+      splitActive,
+      openSessionChecked,
+      handleCloseTab,
+      openCommanderChecked,
       notify,
     ],
   );
@@ -291,14 +499,18 @@ export default function App() {
       if (e.ctrlKey && e.key.toLowerCase() === "t") {
         e.preventDefault();
         openLocalShell();
-      } else if (e.ctrlKey && e.key.toLowerCase() === "w" && activeTab) {
+        setPage("workspace");
+      } else if (e.ctrlKey && e.key.toLowerCase() === "w" && currentTabId) {
         e.preventDefault();
-        closeTab(activeTab);
+        handleCloseTab(currentTabId);
+      } else if (e.ctrlKey && e.key === ",") {
+        e.preventDefault();
+        setPage((p) => (p === "settings" ? "workspace" : "settings"));
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeTab, closeTab, openLocalShell]);
+  }, [openLocalShell, currentTabId, handleCloseTab]);
 
   /* ------------------------------ render ---------------------------- */
 
@@ -320,87 +532,136 @@ export default function App() {
 
   return (
     <div
-      className="app"
+      className={`app density-${ui.density}`}
+      style={{ fontSize: `${Math.round(14 * ui.fontScale)}px` }}
       onMouseDown={() => {
         setCtx(null);
         setTabCtx(null);
       }}
     >
-      <MenuBar menus={menus} quick={{ paste: () => void pasteIntoActive(), target: currentTab?.target ?? "" }} />
+      <MenuBar menus={menus} page={page} />
 
-      <div className="body">
-        <div className="leftcol">
-          <div className="panel panel-conn">
-            <div className="panel-title">
-              <span>Connections</span>
-              <span className="spacer" />
-              <button className="pbtn" title="Collapse all" onClick={() => expandAll(false)}>▼</button>
-              <button className="pbtn" title="Expand all" onClick={() => expandAll(true)}>▲</button>
-              <button className="pbtn" title="Hide">✕</button>
-            </div>
-            <div className="panel-toolbar">
-              <button className="tbtn" title="Back" disabled>◀</button>
-              <button className="tbtn" title="Forward" disabled>▶</button>
-              <button className="tbtn" title="Collapse all" onClick={() => expandAll(false)}>▾</button>
-              <button className="tbtn" title="Expand all" onClick={() => expandAll(true)}>▴</button>
-              <button className="tbtn" title="Refresh" onClick={() => notify("Tree refreshed")}>⟳</button>
-              <button className="tbtn" title="Search (v0.2)" disabled>🔍</button>
-            </div>
-            <SessionTree tree={tree} selectedPath={selectedPath} cb={treeCb} />
-          </div>
-
-          <ConfigPanel
-            node={selected}
-            onChange={handleUpdateNode}
-            vaultUnlocked={vaultStatus.unlocked}
+      {/* Every live tab view mounts exactly once, here; portals relocate the
+          DOM into the active pane slots. */}
+      <div className="content-stage" aria-hidden={page === "settings"}>
+        {tabs.map((t) => (
+          <TabContent
+            key={t.id}
+            tab={t}
+            target={targetForTabId[t.id] ?? null}
+            active={t.id === currentTabId && page === "workspace"}
+            term={ui.terminal}
+            onToast={notify}
+            onOpenTerminal={handleOpenTerminalFromCommander}
           />
-        </div>
-
-        <div className="docarea">
-          <TabStrip
-            tabs={tabs}
-            activeId={activeTab}
-            onSelect={setActiveTab}
-            onClose={closeTab}
-            onNewLocal={openLocalShell}
-            onContextMenu={(e, id) => {
-              e.preventDefault();
-              setCtx(null);
-              setTabCtx({ x: e.clientX, y: e.clientY, id });
-            }}
-          />
-
-          <div className="term-area">
-            {tabs.length === 0 && (
-              <div className="workspace-hint">
-                Double-click a connection in the Connections panel to open a terminal tab.
-                <br />
-                Import your WinSSHTerm settings via <b>File → Import connections…</b>
-              </div>
-            )}
-            {tabs.map((t) =>
-              t.kind === "commander" ? (
-                <CommanderView
-                  key={t.id}
-                  tab={t}
-                  active={t.id === activeTab}
-                  onToast={notify}
-                  onOpenTerminal={(ct) =>
-                    openTerminalFromSpec(
-                      ct.spec,
-                      ct.title.replace(/ · SFTP$/, ""),
-                      ct.target,
-                      ct.password,
-                    )
-                  }
-                />
-              ) : (
-                <TerminalView key={t.id} tab={t} active={t.id === activeTab} />
-              ),
-            )}
-          </div>
-        </div>
+        ))}
       </div>
+
+      {page === "settings" ? (
+        <SettingsPage
+          ui={ui}
+          onPatch={patchUi}
+          onPatchTerminal={updateTerminal}
+          onSave={() => void saveSettings()}
+          onBack={() => setPage("workspace")}
+        />
+      ) : (
+        <div className="workspace">
+          <div className="rail">
+            <div className="rail-inner">
+              <div className="rail-collapsed-icons">
+                <div className="rail-icon active" title="Connections">
+                  <Icon name="server" size={17} />
+                </div>
+                {ui.showConfig && (
+                  <div className="rail-icon" title="Configuration">
+                    <Icon name="settings" size={17} />
+                  </div>
+                )}
+              </div>
+              <div className="rail-content">
+                <div className="rail-head">
+                  <div className="rail-title">
+                    <Icon name="server" size={14} /> Connections
+                  </div>
+                  <div className="pane-tools">
+                    <button className="icon-btn" title="Collapse all" onClick={() => expandAll(false)}>
+                      <Icon name="chev" size={13} />
+                    </button>
+                    <button className="icon-btn" title="Expand all" onClick={() => expandAll(true)}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ transform: "rotate(180deg)" }}>
+                        <path d="M6 9l6 6 6-6" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <SessionTree tree={tree} selectedPath={selectedPath} cb={treeCb} />
+                <div className="rail-actions">
+                  <button
+                    className="btn primary"
+                    disabled={!selected || selected.type === "Container"}
+                    onClick={() => selected && openSessionChecked(selected)}
+                  >
+                    <Icon name="terminal" size={13} /> Connect
+                  </button>
+                  <button
+                    className="btn"
+                    disabled={!selected || selected.type === "Container"}
+                    onClick={() => selected && openCommanderChecked(selected)}
+                  >
+                    <Icon name="transfer" size={13} /> SFTP
+                  </button>
+                </div>
+                {ui.showConfig && (
+                  <div className="config-block">
+                    <div className="config-head">
+                      <Icon name="settings" size={13} /> Configuration
+                    </div>
+                    <ConfigPanel
+                      node={selected}
+                      onChange={handleUpdateNode}
+                      vaultUnlocked={vaultStatus.unlocked}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <main className="work" aria-label="Terminal work area">
+            <TabStrip
+              tabs={tabs}
+              activeId={currentTabId}
+              onSelect={selectTab}
+              onClose={handleCloseTab}
+              onNewLocal={() => {
+                openLocalShell();
+              }}
+              onReorder={reorderTabs}
+              onContextMenu={(e, id) => {
+                e.preventDefault();
+                setCtx(null);
+                setTabCtx({ x: e.clientX, y: e.clientY, id });
+              }}
+            />
+            <WorkArea
+              node={layout}
+              tabs={tabs}
+              activeLeafId={activeLeafId}
+              onSplit={(leafId, dir) => {
+                split(leafId, dir);
+                setActiveLeafId(leafId);
+              }}
+              onClosePane={handleClosePane}
+              onMoveTab={handleMoveTab}
+              onSplitForTab={splitForTab}
+              onResize={resize}
+              onSlot={onSlot}
+              onNewShell={openLocalShell}
+            />
+          </main>
+        </div>
+      )}
 
       <StatusBar
         tab={currentTab}
@@ -411,45 +672,39 @@ export default function App() {
       />
 
       {ctx && ctxNode && ctx.path[0] >= 0 && (
-        <div className="menu-pop" style={{ left: ctx.x, top: ctx.y }} onMouseDown={(e) => e.stopPropagation()}>
+        <div className="menu-pop ctx" style={{ left: ctx.x, top: ctx.y }} onMouseDown={(e) => e.stopPropagation()}>
           {ctxNode.type === "Connection" && (
             <>
-              <div className="menu-entry" onClick={() => { setCtx(null); openSessionChecked(ctxNode); }}>
+              <div className="menu-item" onClick={() => { setCtx(null); openSessionChecked(ctxNode); }}>
                 <span>Connect</span>
               </div>
-              <div
-                className="menu-entry"
-                onClick={() => {
-                  setCtx(null);
-                  openCommander(ctxNode);
-                }}
-              >
+              <div className="menu-item" onClick={() => { setCtx(null); openCommanderChecked(ctxNode); }}>
                 <span>Copy Files</span>
                 <span className="hint">SFTP</span>
               </div>
-              <div className="menu-divider" />
+              <div className="menu-sep" />
             </>
           )}
           {ctxNode.type === "Container" && (
             <>
-              <div className="menu-entry" onClick={() => { setCtx(null); addSession(false); }}>
+              <div className="menu-item" onClick={() => { setCtx(null); addSession(false); }}>
                 <span>New session here</span>
               </div>
-              <div className="menu-entry" onClick={() => { setCtx(null); addSession(true); }}>
+              <div className="menu-item" onClick={() => { setCtx(null); addSession(true); }}>
                 <span>New folder here</span>
               </div>
-              <div className="menu-divider" />
+              <div className="menu-sep" />
             </>
           )}
-          <div className="menu-entry" onClick={() => { setCtx(null); duplicateSelected(); }}>
+          <div className="menu-item" onClick={() => { setCtx(null); duplicateSelected(); }}>
             <span>Duplicate</span>
           </div>
-          <div className="menu-entry" onClick={() => { setCtx(null); deleteSelected(); }}>
+          <div className="menu-item" onClick={() => { setCtx(null); deleteSelected(); }}>
             <span>Delete</span>
           </div>
-          <div className="menu-divider" />
+          <div className="menu-sep" />
           <div
-            className="menu-entry"
+            className="menu-item"
             onClick={() => {
               const p = ctx.path.slice(0, -1);
               setCtx(null);
@@ -463,22 +718,22 @@ export default function App() {
 
       {tabCtx && (
         <div
-          className="menu-pop"
+          className="menu-pop ctx"
           style={{ left: tabCtx.x, top: tabCtx.y }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <div className="menu-entry" onClick={() => { setTabCtx(null); closeTab(tabCtx.id); }}>
+          <div className="menu-item" onClick={() => { setTabCtx(null); handleCloseTab(tabCtx.id); }}>
             <span>Close</span>
             <span className="hint">Ctrl+W</span>
           </div>
-          <div className="menu-entry" onClick={() => { setTabCtx(null); closeOthers(tabCtx.id); }}>
+          <div className="menu-item" onClick={() => { setTabCtx(null); closeOthers(tabCtx.id); }}>
             <span>Close Others</span>
           </div>
-          <div className="menu-entry" onClick={() => { setTabCtx(null); closeAllTabs(); }}>
+          <div className="menu-item" onClick={() => { setTabCtx(null); closeAllTabs(); }}>
             <span>Close All</span>
           </div>
-          <div className="menu-divider" />
-          <div className="menu-entry" onClick={() => { setTabCtx(null); openLocalShell(); }}>
+          <div className="menu-sep" />
+          <div className="menu-item" onClick={() => { setTabCtx(null); openLocalShell(); }}>
             <span>New local shell</span>
           </div>
         </div>
@@ -487,7 +742,12 @@ export default function App() {
       {modal && modal.kind === "path" && (
         <div className="modal-backdrop" onMouseDown={() => setModal(null)}>
           <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-            <h3>{modal.title}</h3>
+            <div className="modal-head">
+              <h3>{modal.title}</h3>
+              <button className="icon-btn" aria-label="Close" onClick={() => setModal(null)}>
+                <Icon name="close" size={14} />
+              </button>
+            </div>
             <div className="modal-body">
               <input
                 type="text"
@@ -540,12 +800,43 @@ export default function App() {
       {modal && modal.kind === "info" && (
         <div className="modal-backdrop" onMouseDown={() => setModal(null)}>
           <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
-            <h3>{modal.title}</h3>
+            <div className="modal-head">
+              <h3>{modal.title}</h3>
+              <button className="icon-btn" aria-label="Close" onClick={() => setModal(null)}>
+                <Icon name="close" size={14} />
+              </button>
+            </div>
             <div className="modal-body">
               <pre style={{ margin: 0, whiteSpace: "pre-wrap", font: "inherit" }}>{modal.message}</pre>
             </div>
             <div className="modal-actions">
               <button className="btn primary" onClick={() => setModal(null)}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modal && modal.kind === "shortcuts" && (
+        <div className="modal-backdrop" onMouseDown={() => setModal(null)}>
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()}>
+            <div className="modal-head">
+              <h3>Keyboard Shortcuts</h3>
+              <button className="icon-btn" aria-label="Close" onClick={() => setModal(null)}>
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="kvs">
+                {SHORTCUTS.map(([k, v]) => (
+                  <div key={k}>
+                    <span className="mono">{k}</span>
+                    <span className="muted">{v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn primary" onClick={() => setModal(null)}>Close</button>
             </div>
           </div>
         </div>

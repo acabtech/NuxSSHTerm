@@ -121,3 +121,41 @@ export function targetOf(n: SessionNode): string {
   const user = n.username || "?";
   return `${user}@${n.hostname || "?"}:${n.port || "22"}`;
 }
+
+// ---- v0.5.0: modernized UI settings + tileable layout ---------------------
+
+/** Density token for the chrome (spacing). Mirrors DESIGN.md `spacing.unit`. */
+export type Density = "comfortable" | "compact";
+
+/** xterm.js terminal preferences (mirrors the Rust `TerminalSettings`). */
+export interface TerminalSettings {
+  fontSize: number;
+  scrollback: number;
+  cursorBlink: boolean;
+}
+
+/** Persisted, non-secret chrome preferences (mirrors the Rust `UiSettings`). */
+export interface UiSettings {
+  density: Density;
+  fontScale: number;
+  showConfig: boolean;
+  terminal: TerminalSettings;
+}
+
+export const DEFAULT_UI_SETTINGS: UiSettings = {
+  density: "comfortable",
+  fontScale: 1,
+  showConfig: true,
+  terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true },
+};
+
+/** A node in the tileable work-area layout tree. */
+export type LayoutNode =
+  | { kind: "leaf"; id: string; tabId: string | null }
+  | { kind: "split"; id: string; dir: "row" | "col"; sizes: number[]; children: LayoutNode[] };
+
+export const DEFAULT_LAYOUT: LayoutNode = {
+  kind: "leaf",
+  id: "l1",
+  tabId: null,
+};

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "./Icon";
 
 export interface MenuDef {
   label: string;
@@ -8,13 +9,13 @@ export interface MenuDef {
   >;
 }
 
-/** WinSSHTerm's menu bar plus the right-aligned quick strip (Scripts | Paste | Visible | Con | None). */
+/** Modern menu bar (v0.5.0): brand + dropdown menus + current-page badge. */
 export function MenuBar({
   menus,
-  quick,
+  page,
 }: {
   menus: MenuDef[];
-  quick: { paste: () => void; target: string };
+  page: "workspace" | "settings";
 }) {
   const [open, setOpen] = useState<number | null>(null);
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -30,43 +31,40 @@ export function MenuBar({
   const menu = open !== null ? menus[open] : null;
 
   return (
-    <div className="topbar">
-      <div className="menubar" ref={barRef}>
-        {menus.map((m, i) => (
-          <div
-            key={m.label}
-            className={`menubar-item${open === i ? " open" : ""}`}
-            onMouseDown={(e) => {
-              e.stopPropagation();
-              const r = (e.target as HTMLElement).getBoundingClientRect();
-              setPos({ x: r.left, y: r.bottom });
-              setOpen(open === i ? null : i);
-            }}
-            onMouseEnter={() => {
-              if (open !== null && open !== i) {
-                const el = barRef.current?.children[i] as HTMLElement | undefined;
-                if (el) {
-                  const r = el.getBoundingClientRect();
-                  setPos({ x: r.left, y: r.bottom });
-                }
-                setOpen(i);
-              }
-            }}
-          >
-            {m.label}
-          </div>
-        ))}
+    <div className="menubar" role="menubar" aria-label="Application menus" ref={barRef}>
+      <div className="brand">
+        <Icon name="terminal" size={15} /> NuxSSHTerm
       </div>
 
-      <div className="quickstrip" onMouseDown={(e) => e.stopPropagation()}>
-        <button className="qs-btn" title="Launch scripts (v0.3)">Scripts</button>
-        <button className="qs-btn" title="Paste clipboard into the active terminal" onClick={quick.paste}>
-          Paste
-        </button>
-        <button className="qs-btn" title="Quick-launch bar visibility (v0.2)">Visible</button>
-        <button className="qs-btn" title="Configuration panel">Con</button>
-        <button className="qs-btn" title="No quick-launch bar">None</button>
-      </div>
+      {menus.map((m, i) => (
+        <div
+          key={m.label}
+          className={`menu-root${open === i ? " open" : ""}`}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            const r = (e.target as HTMLElement).getBoundingClientRect();
+            setPos({ x: r.left, y: r.bottom });
+            setOpen(open === i ? null : i);
+          }}
+          onMouseEnter={(e) => {
+            if (open !== null && open !== i) {
+              const btn = (e.currentTarget as HTMLElement).querySelector(".menu-btn");
+              if (btn) {
+                const r = btn.getBoundingClientRect();
+                setPos({ x: r.left, y: r.bottom });
+              }
+              setOpen(i);
+            }
+          }}
+        >
+          <button className="menu-btn" aria-haspopup="menu" aria-expanded={open === i}>
+            {m.label}
+          </button>
+        </div>
+      ))}
+
+      <div className="menu-spacer" />
+      <span className="page-badge">{page === "settings" ? "Settings" : "Workspace"}</span>
 
       {menu && (
         <div
@@ -76,11 +74,11 @@ export function MenuBar({
         >
           {menu.items.map((it, idx) =>
             it.kind === "divider" ? (
-              <div className="menu-divider" key={`d${idx}`} />
+              <div className="menu-sep" key={`d${idx}`} />
             ) : (
               <div
                 key={it.label}
-                className={`menu-entry${it.disabled ? " disabled" : ""}`}
+                className={`menu-item${it.disabled ? " disabled" : ""}`}
                 onClick={() => {
                   if (it.disabled) return;
                   setOpen(null);

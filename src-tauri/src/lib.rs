@@ -16,10 +16,23 @@ mod wsst_crypto;
 mod xml;
 
 use model::Node;
+use store::UiSettings;
 
 #[tauri::command]
 fn load_tree() -> Vec<Node> {
     store::load_tree()
+}
+
+/// Return the persisted modernized-UI chrome settings (v0.5.0).
+#[tauri::command]
+fn get_ui_settings() -> UiSettings {
+    store::get_ui_settings()
+}
+
+/// Persist the modernized-UI chrome settings.
+#[tauri::command]
+fn set_ui_settings(ui: UiSettings) -> Result<(), String> {
+    store::set_ui_settings(&ui)
 }
 
 #[tauri::command]
@@ -71,6 +84,8 @@ pub fn run() {
             load_tree,
             save_tree,
             config_dir,
+            get_ui_settings,
+            set_ui_settings,
             import_connections_file,
             export_connections_file,
             pty::pty_open,

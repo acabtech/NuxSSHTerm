@@ -1,53 +1,55 @@
-// Menu definition builder. Keeps the (large) WinSSHTerm menu tree out of App.tsx
-// and centralises the dispatch of each menu item to an action callback.
+// Menu definition builder (v0.5.0): File / Edit / View / Sessions / Tools /
+// Help, per plans/modernization-plan.md + the App.jsx mockup. Each item maps
+// a mockup action id onto the existing real backend callbacks — no invented
+// behavior.
 
 import type { MenuDef } from "../components/MenuBar";
+import { termCopySelection } from "../components/TerminalView";
 import type { SessionNode } from "../types";
+import { quitApp } from "./quit";
 
 export interface MenuActions {
-  configDir: string;
   selected: SessionNode | null;
-  selectedPath: number[] | null;
+  /** id of the tab in the active leaf (null = no active tab) */
+  activeTabId: string | null;
+  currentKind: "terminal" | "commander" | null;
+  onNewLocalShell: () => void;
+  onNewSession: () => void;
   onImport: () => void;
   onExport: () => void;
-  onMasterPassword: () => void;
+  onOpenConfigFolder: () => void;
   onLockVault: () => void;
   vaultUnlocked: boolean;
-  onConfigFolder: () => void;
-  onExpandAll: (expanded: boolean) => void;
-  onAddSession: (asContainer: boolean) => void;
+  onCopy: () => void;
+  onPaste: () => void;
+  onToggleConfig: () => void;
+  onSplitActive: (dir: "row" | "col") => void;
+  onWorkspace: () => void;
+  onSettings: () => void;
   onConnect: () => void;
-  onCopyFiles: () => void;
+  onDisconnect: () => void;
+  onOpenSftp: () => void;
   onKeyManager: () => void;
-  onOpenLocalShell: () => void;
+  onMasterPassword: () => void;
+  onShortcuts: () => void;
   onAbout: () => void;
 }
 
 export function buildMenus(a: MenuActions): MenuDef[] {
   const canConnect = !!a.selected && a.selected.type !== "Container";
+  const hasTab = a.activeTabId !== null;
+  const isTerminal = a.currentKind === "terminal";
 
   return [
     {
       label: "File",
       items: [
-        {
-          kind: "item",
-          label: "Import connections…",
-          hint: "connections.xml",
-          onClick: a.onImport,
-        },
-        {
-          kind: "item",
-          label: "Export connections…",
-          hint: "connections.xml",
-          onClick: a.onExport,
-        },
+        { kind: "item", label: "New Local Shell", hint: "Ctrl+T", onClick: a.onNewLocalShell },
+        { kind: "item", label: "New Connection…", onClick: a.onNewSession },
         { kind: "divider" },
-        {
-          kind: "item",
-          label: "Master password…",
-          onClick: a.onMasterPassword,
-        },
+        { kind: "item", label: "Import connections…", hint: "WinSSHTerm", onClick: a.onImport },
+        { kind: "item", label: "Export connections…", hint: "connections.xml", onClick: a.onExport },
+        { kind: "item", label: "Open config folder", onClick: a.onOpenConfigFolder },
         {
           kind: "item",
           label: "Lock vault",
@@ -55,67 +57,73 @@ export function buildMenus(a: MenuActions): MenuDef[] {
           disabled: !a.vaultUnlocked,
           onClick: a.onLockVault,
         },
+        { kind: "divider" },
+        { kind: "item", label: "Settings…", hint: "Ctrl+,", onClick: a.onSettings },
+        { kind: "divider" },
+        { kind: "item", label: "Quit", onClick: quitApp },
+      ],
+    },
+    {
+      label: "Edit",
+      items: [
         {
           kind: "item",
-          label: "Config folder…",
-          hint: a.configDir ? "open" : "",
-          onClick: a.onConfigFolder,
+          label: "Copy",
+          hint: "Shift+Ctrl+C",
+          disabled: !hasTab || !isTerminal,
+          onClick: () => {
+            // Prefer the live xterm selection when present.
+            if (!a.activeTabId || !termCopySelection(a.activeTabId)) a.onCopy();
+          },
         },
-        { kind: "divider" },
-        { kind: "item", label: "Exit", onClick: () => window.close() },
+        {
+          kind: "item",
+          label: "Paste",
+          hint: "Ctrl+V",
+          disabled: !hasTab || !isTerminal,
+          onClick: a.onPaste,
+        },
+        { kind: "item", label: "Find in Terminal", hint: "v0.6", disabled: true, onClick: () => {} },
       ],
     },
     {
       label: "View",
       items: [
-        { kind: "item", label: "Expand all", onClick: () => a.onExpandAll(true) },
-        { kind: "item", label: "Collapse all", onClick: () => a.onExpandAll(false) },
+        { kind: "item", label: "Toggle Configuration", onClick: a.onToggleConfig },
+        { kind: "item", label: "Split Right", hint: "active pane", onClick: () => a.onSplitActive("row") },
+        { kind: "item", label: "Split Down", hint: "active pane", onClick: () => a.onSplitActive("col") },
         { kind: "divider" },
-        { kind: "item", label: "Connections panel", hint: "always on", disabled: true, onClick: () => {} },
-        { kind: "item", label: "Configuration panel", hint: "always on", disabled: true, onClick: () => {} },
+        { kind: "item", label: "Workspace", onClick: a.onWorkspace },
+        { kind: "item", label: "Settings Page", onClick: a.onSettings },
       ],
     },
     {
-      label: "Navigate",
+      label: "Sessions",
       items: [
-        { kind: "item", label: "New session", hint: "Ctrl+N", onClick: () => a.onAddSession(false) },
-        { kind: "item", label: "New folder", onClick: () => a.onAddSession(true) },
+        { kind: "item", label: "Connect Selected", disabled: !canConnect, onClick: a.onConnect },
+        {
+          kind: "item",
+          label: "Disconnect",
+          disabled: !hasTab,
+          onClick: a.onDisconnect,
+        },
         { kind: "divider" },
-        {
-          kind: "item",
-          label: "Connect",
-          disabled: !canConnect,
-          onClick: a.onConnect,
-        },
-        {
-          kind: "item",
-          label: "Copy Files (SFTP)…",
-          hint: "next",
-          disabled: !canConnect,
-          onClick: a.onCopyFiles,
-        },
+        { kind: "item", label: "Open SFTP Commander", disabled: !canConnect, onClick: a.onOpenSftp },
       ],
     },
     {
       label: "Tools",
       items: [
-        {
-          kind: "item",
-          label: "SSH key manager…",
-          hint: "Pageant",
-          onClick: a.onKeyManager,
-        },
-        { kind: "divider" },
-        { kind: "item", label: "New local shell", onClick: a.onOpenLocalShell },
+        { kind: "item", label: "SSH Key Manager", hint: "agent", onClick: a.onKeyManager },
+        { kind: "item", label: "Master Password…", onClick: a.onMasterPassword },
       ],
     },
     {
       label: "Help",
-      items: [{ kind: "item", label: "About NuxSSHTerm", onClick: a.onAbout }],
-    },
-    {
-      label: "Cons",
-      items: [{ kind: "item", label: "Console options…", hint: "v0.2", disabled: true, onClick: () => {} }],
+      items: [
+        { kind: "item", label: "Keyboard Shortcuts", onClick: a.onShortcuts },
+        { kind: "item", label: "About NuxSSHTerm", onClick: a.onAbout },
+      ],
     },
   ];
 }

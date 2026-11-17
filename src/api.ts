@@ -1,11 +1,15 @@
 // Thin wrappers over the Tauri command surface (src-tauri/src/lib.rs).
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { LaunchSpec, SessionNode } from "./types";
+import type { LaunchSpec, SessionNode, UiSettings } from "./types";
 
 export const loadTree = () => invoke<SessionNode[]>("load_tree");
 export const saveTree = (tree: SessionNode[]) => invoke<void>("save_tree", { tree });
 export const getConfigDir = () => invoke<string>("config_dir");
+
+// ---- v0.5.0: persisted UI chrome settings ----
+export const getUiSettings = () => invoke<UiSettings>("get_ui_settings");
+export const setUiSettings = (ui: UiSettings) => invoke<void>("set_ui_settings", { ui });
 export const importConnectionsFile = (path: string) =>
   invoke<SessionNode[]>("import_connections_file", { path });
 export const exportConnectionsFile = (path: string, tree: SessionNode[]) =>

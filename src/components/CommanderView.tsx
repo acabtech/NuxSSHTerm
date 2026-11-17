@@ -509,7 +509,7 @@ export function CommanderView({ tab, active, onToast, onOpenTerminal }: Props) {
   type Row = { key: string; label: string; kind: "up" | "dir" | "file" | "link"; size: string; mtime: string; perms: string; entry: SftpEntry | LocalEntry | null };
 
   return (
-    <div className={`term-pane commander${active ? "" : " hidden"}`} tabIndex={0} ref={rootRef} onKeyDown={onKeyDown}>
+    <div className="term-pane commander" tabIndex={0} ref={rootRef} onKeyDown={onKeyDown}>
       <div className="cmd-body">
         {pane("local")}
         {pane("remote")}

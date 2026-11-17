@@ -1,5 +1,10 @@
 # UI Spec — WinSSHTerm parity target (from Sam's screenshot, 2026-10-04)
 
+> **Superseded for chrome/layout as of v0.5.0.** The modernized shell (dark design tokens, collapsible
+> left connections rail, tileable split panes, draggable tabs, real dropdown menus, dedicated Settings
+> page) is specified in `plans/DESIGN.md` + `plans/modernization-plan.md` and implemented in `src/`.
+> This document remains the historical parity reference for backend/feature behavior only.
+
 Reference: `winsshterm-screen.PNG` — WinSSHTerm 2.43.x on Windows, window maximized at ~1920×1040.
 Layout engine in the original: **DockPanel Suite** (dockable panels). v0.1 = fixed layout; v0.2 = draggable/dockable.
 
