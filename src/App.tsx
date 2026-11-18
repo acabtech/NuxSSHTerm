@@ -413,6 +413,7 @@ export default function App() {
           setPage("workspace");
         },
         onNewSession: () => addSession(false),
+        onNewFolder: () => addSession(true),
         onImport: () => setModal({ kind: "import-sessions" }),
         onExport: () =>
           setModal({
@@ -437,6 +438,7 @@ export default function App() {
         onConnect: () => {
           if (selected) openSessionChecked(selected);
         },
+        onDuplicate: duplicateSelected,
         onDisconnect: () => {
           if (currentTabId) handleCloseTab(currentTabId);
         },
@@ -458,6 +460,17 @@ export default function App() {
           }
         },
         onShortcuts: () => setModal({ kind: "shortcuts" }),
+        onDocs: () =>
+          setModal({
+            kind: "info",
+            title: "Documentation",
+            message:
+              "Project documentation is available in the repository:\n\n" +
+              "• docs/ARCHITECTURE.md — system architecture and roadmap\n" +
+              "• docs/UI-SPEC.md — UI behavior and historical parity notes\n" +
+              "• plans/DESIGN.md + plans/modernization-plan.md — v0.5.0 design/IA\n\n" +
+              "Open the project folder or config/docs location in your editor to view them.",
+          }),
         onAbout: () =>
           setModal({
             kind: "info",
@@ -475,6 +488,7 @@ export default function App() {
       currentTab?.kind,
       openLocalShell,
       addSession,
+      duplicateSelected,
       configDir,
       openConfigFolder,
       vaultStatus.unlocked,

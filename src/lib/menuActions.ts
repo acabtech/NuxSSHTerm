@@ -15,6 +15,7 @@ export interface MenuActions {
   currentKind: "terminal" | "commander" | null;
   onNewLocalShell: () => void;
   onNewSession: () => void;
+  onNewFolder: () => void;
   onImport: () => void;
   onExport: () => void;
   onOpenConfigFolder: () => void;
@@ -27,11 +28,13 @@ export interface MenuActions {
   onWorkspace: () => void;
   onSettings: () => void;
   onConnect: () => void;
+  onDuplicate: () => void;
   onDisconnect: () => void;
   onOpenSftp: () => void;
   onKeyManager: () => void;
   onMasterPassword: () => void;
   onShortcuts: () => void;
+  onDocs: () => void;
   onAbout: () => void;
 }
 
@@ -46,6 +49,7 @@ export function buildMenus(a: MenuActions): MenuDef[] {
       items: [
         { kind: "item", label: "New Local Shell", hint: "Ctrl+T", onClick: a.onNewLocalShell },
         { kind: "item", label: "New Connection…", onClick: a.onNewSession },
+        { kind: "item", label: "New Folder…", onClick: a.onNewFolder },
         { kind: "divider" },
         { kind: "item", label: "Import connections…", hint: "WinSSHTerm", onClick: a.onImport },
         { kind: "item", label: "Export connections…", hint: "connections.xml", onClick: a.onExport },
@@ -101,6 +105,7 @@ export function buildMenus(a: MenuActions): MenuDef[] {
       label: "Sessions",
       items: [
         { kind: "item", label: "Connect Selected", disabled: !canConnect, onClick: a.onConnect },
+        { kind: "item", label: "Duplicate", disabled: !a.selected, onClick: a.onDuplicate },
         {
           kind: "item",
           label: "Disconnect",
@@ -116,12 +121,19 @@ export function buildMenus(a: MenuActions): MenuDef[] {
       items: [
         { kind: "item", label: "SSH Key Manager", hint: "agent", onClick: a.onKeyManager },
         { kind: "item", label: "Master Password…", onClick: a.onMasterPassword },
+        { kind: "item", label: "Command palette", hint: "v0.6", disabled: true, onClick: () => {} },
       ],
     },
     {
       label: "Help",
       items: [
         { kind: "item", label: "Keyboard Shortcuts", onClick: a.onShortcuts },
+        {
+          kind: "item",
+          label: "Documentation",
+          hint: "docs/",
+          onClick: a.onDocs,
+        },
         { kind: "item", label: "About NuxSSHTerm", onClick: a.onAbout },
       ],
     },
