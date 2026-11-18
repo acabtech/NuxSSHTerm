@@ -67,6 +67,65 @@ fn default_true() -> bool {
     true
 }
 
+/// SSH authentication ordering (issue #8). Controls whether sessions prefer the
+/// credential configured per connection (private key / vault password) or the
+/// ssh-agent identities, and whether agent identities are offered as fallback
+/// after a credential-first attempt fails.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AuthSettings {
+    /// "credential_first" | "agent_first" | "agent_only"
+    pub auth_order: String,
+    /// Seconds to wait before falling back to agent identities when
+    /// "credential_first" is set and a session credential exists.
+    /// 0 = never offer agent identities (credential only).
+    pub agent_fallback_secs: u32,
+}
+
+impl Default for AuthSettings {
+    fn default() -> Self {
+        Self {
+            auth_order: "credential_first".to_string(),
+            agent_fallback_secs: 3,
+        }
+    }
+}
+
+impl AuthSettings {
+    /// Effective policy for one session: whether to export `SSH_AUTH_SOCK` to
+    /// the child and whether to pin identity selection with `IdentitiesOnly`.
+    ///
+    /// - `agent_only` / `agent_first`: always export the agent socket.
+    /// - `credential_first` with a configured credential: export the agent
+    ///   socket only when a fallback is configured (>0s) — ssh naturally tries
+    ///   the explicit `-i` key / askpass password first and agent identities
+    ///   after, which realises the staged fallback. With no fallback the
+    ///   socket is withheld and `IdentitiesOnly=yes` pins the credential.
+    /// - `credential_first` without a credential: nothing to prefer; behave
+    ///   like `agent_first` (export the socket if one is configured).
+    pub fn session_policy(&self, has_credential: bool) -> (bool, bool) {
+        match self.auth_order.as_str() {
+            "agent_only" => (true, false),
+            "agent_first" => (true, false),
+            _ => {
+                if has_credential {
+                    if self.agent_fallback_secs > 0 {
+                        (true, false)
+                    } else {
+                        (false, true)
+                    }
+                } else {
+                    (true, false)
+                }
+            }
+        }
+    }
+}
+
+fn default_auth() -> AuthSettings {
+    AuthSettings::default()
+}
+
 fn default_vault_auto_lock_minutes() -> u32 {
     0
 }
@@ -150,6 +209,9 @@ pub struct UiSettings {
     /// Connections sidebar (width / collapse behavior).
     #[serde(default = "default_sidebar")]
     pub sidebar: SidebarSettings,
+    /// SSH authentication ordering / agent fallback (issue #8).
+    #[serde(default = "default_auth")]
+    pub auth: AuthSettings,
 }
 
 fn default_sidebar() -> SidebarSettings {
@@ -169,6 +231,7 @@ impl Default for UiSettings {
             terminal: TerminalSettings::default(),
             transfer: TransferSettings::default(),
             sidebar: SidebarSettings::default(),
+            auth: AuthSettings::default(),
         }
     }
 }

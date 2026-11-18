@@ -104,13 +104,47 @@ pub fn pty_open(
         })?;
 
     let local_shell = spec.host.is_empty();
+    // SSH auth ordering (issue #8): decide whether the agent socket is exported
+    // and whether the configured credential is pinned with `IdentitiesOnly`.
+    let mut auth_args: Vec<String> = Vec::new();
+    let mut auth_env: Vec<(String, String)> = Vec::new();
+    if !local_shell {
+        let auth = crate::store::get_ui_settings().auth;
+        let has_credential =
+            !spec.private_key.is_empty() || password.as_deref().map_or(false, |p| !p.is_empty());
+        let (export_agent, identities_only) = auth.session_policy(has_credential);
+        if !export_agent && identities_only && spec.forward_agent {
+            crate::log::error(
+                "pty_open",
+                "agent forwarding requested but agent identity export is disabled by the auth policy; forwarding will offer no keys",
+            );
+        }
+        if identities_only {
+            auth_args.push("-o".into());
+            auth_args.push("IdentitiesOnly=yes".into());
+        }
+        if export_agent
+            && let Some(sock) = crate::agent::configured_socket()
+        {
+            auth_env.push(("SSH_AUTH_SOCK".to_string(), sock));
+        }
+    }
     let mut cmd = if local_shell {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into());
         CommandBuilder::new(shell)
     } else {
         let mut c = CommandBuilder::new("ssh");
-        for a in spec.ssh_args() {
+        // ssh_args() ends with the host target, so the auth policy options
+        // (IdentitiesOnly pinning) must go before it.
+        let mut argv = spec.ssh_args();
+        let host = argv.pop().unwrap_or_default();
+        argv.extend(auth_args);
+        argv.push(host);
+        for a in argv {
             c.arg(a);
+        }
+        for (k, v) in auth_env {
+            c.env(k, v);
         }
         c
     };
@@ -118,11 +152,6 @@ pub fn pty_open(
     cmd.env("COLORTERM", "truecolor");
     if !spec.username.is_empty() {
         cmd.env("USER", spec.username.clone());
-    }
-    // Export the key-manager agent socket (Phase 4) so terminal sessions can
-    // use agent keys and ForwardAgent even when launched from a desktop icon.
-    if let Some(sock) = crate::agent::configured_socket() {
-        cmd.env("SSH_AUTH_SOCK", &sock);
     }
     // Feed a vault password to ssh's password prompt via askpass. This is what
     // makes saved passwords work for terminal sessions (sftp already does the

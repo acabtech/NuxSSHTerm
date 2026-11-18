@@ -153,6 +153,19 @@ export interface SidebarSettings {
   collapseDelayMs: number;
 }
 
+/** SSH auth ordering preferences (mirrors the Rust `AuthSettings`). */
+export interface AuthSettings {
+  /**
+   * "credential_first" prefers the per-connection key/password, offering
+   * agent identities after the fallback delay; "agent_first" offers agent
+   * identities before the credential; "agent_only" never uses a stored
+   * credential.
+   */
+  authOrder: "credential_first" | "agent_first" | "agent_only";
+  /** Seconds before agent-identity fallback when a session credential exists. 0 = credential only. */
+  agentFallbackSecs: number;
+}
+
 /** SFTP commander / file transfer preferences (mirrors the Rust `TransferSettings`). */
 export interface TransferSettings {
   confirmBeforeOverwrite: boolean;
@@ -178,6 +191,8 @@ export interface UiSettings {
   transfer: TransferSettings;
   /** Connections sidebar (width / collapse behavior). */
   sidebar: SidebarSettings;
+  /** SSH authentication ordering / agent fallback (issue #8). */
+  auth: AuthSettings;
 }
 
 export const DEFAULT_UI_SETTINGS: UiSettings = {
@@ -191,6 +206,7 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true, cursorStyle: "block", bellStyle: "visual" },
   transfer: { confirmBeforeOverwrite: true, confirmBeforeDelete: true, defaultLocalPath: "" },
   sidebar: { width: 320, collapseMode: "hover", collapseDelayMs: 0 },
+  auth: { authOrder: "credential_first", agentFallbackSecs: 3 },
 };
 
 /** A node in the tileable work-area layout tree. */

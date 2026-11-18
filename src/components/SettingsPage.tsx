@@ -23,11 +23,12 @@ interface Props {
   onPatchTerminal: (patch: Partial<UiSettings["terminal"]>) => void;
   onPatchTransfer: (patch: Partial<TransferSettings>) => void;
   onPatchSidebar: (patch: Partial<UiSettings["sidebar"]>) => void;
+  onPatchAuth: (patch: Partial<UiSettings["auth"]>) => void;
   onSave: () => void;
   onBack: () => void;
 }
 
-export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, onPatchSidebar, onSave, onBack }: Props) {
+export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, onPatchSidebar, onPatchAuth, onSave, onBack }: Props) {
   const [section, setSection] = useState<Section>("appearance");
   const [saved, setSaved] = useState(false);
 
@@ -229,6 +230,7 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
         )}
 
         {section === "conn" && (
+          <>
           <div className="card">
             <h3>Connections & Security</h3>
             <label className="row">
@@ -269,6 +271,39 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
               and the vault via Tools → Master Password…
             </div>
           </div>
+          <div className="card">
+            <h3>SSH Authentication</h3>
+            <label>
+              Authentication order
+              <select
+                value={ui.auth.authOrder}
+                onChange={(e) => onPatchAuth({ authOrder: e.target.value as UiSettings["auth"]["authOrder"] })}
+              >
+                <option value="credential_first">Prefer session credential (key / vault password)</option>
+                <option value="agent_first">Prefer ssh-agent identities</option>
+                <option value="agent_only">Only ssh-agent identities (ignore stored credential)</option>
+              </select>
+            </label>
+            <label>
+              Agent fallback delay (seconds)
+              <select
+                value={ui.auth.agentFallbackSecs}
+                disabled={ui.auth.authOrder !== "credential_first"}
+                onChange={(e) => onPatchAuth({ agentFallbackSecs: parseInt(e.target.value, 10) || 0 })}
+              >
+                <option value={0}>Never — use the session credential only</option>
+                <option value={3}>After 3 seconds</option>
+                <option value={5}>After 5 seconds</option>
+                <option value={10}>After 10 seconds</option>
+              </select>
+            </label>
+            <div className="note">
+              "Prefer session credential" pins the connection's key/password first (IdentitiesOnly while no
+              fallback is configured) and offers ssh-agent identities after the fallback delay. Applies to
+              newly opened terminal and SFTP tabs.
+            </div>
+          </div>
+          </>
         )}
 
         {section === "transfer" && (

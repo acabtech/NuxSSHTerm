@@ -88,8 +88,9 @@ export default function App() {
     updateTerminal,
     updateTransfer,
     updateSidebar,
+    updateAuth,
     save: saveSettings,
-  } = useSettings(notify);
+    } = useSettings(notify);
 
   // ---- Connections sidebar: settings-driven width + collapse (issues #10/#7) ----
   const sidebar = ui.sidebar;
@@ -691,6 +692,7 @@ export default function App() {
           onPatchTerminal={updateTerminal}
           onPatchTransfer={updateTransfer}
           onPatchSidebar={updateSidebar}
+          onPatchAuth={updateAuth}
           onSave={() => void saveSettings()}
           onBack={() => setPage("workspace")}
         />

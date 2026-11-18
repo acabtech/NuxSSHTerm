@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getUiSettings, setUiSettings } from "../api";
 import { normalizeHexColor } from "../lib/color";
-import type { SidebarSettings } from "../types";
+import type { AuthSettings, SidebarSettings } from "../types";
 import {
   DEFAULT_UI_SETTINGS,
   type CursorStyle,
@@ -42,12 +42,25 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
           ...(s.sidebar ?? {}),
           width: clampSidebarWidth((s.sidebar ?? DEFAULT_UI_SETTINGS.sidebar).width),
         };
+        const authRaw = ((s as Partial<UiSettings>).auth ?? {}) as Partial<AuthSettings>;
+        const ORDERS: readonly AuthSettings["authOrder"][] = ["credential_first", "agent_first", "agent_only"];
+        const auth: AuthSettings = {
+          ...DEFAULT_UI_SETTINGS.auth,
+          ...authRaw,
+          authOrder: ORDERS.includes(authRaw.authOrder as AuthSettings["authOrder"])
+            ? (authRaw.authOrder as AuthSettings["authOrder"])
+            : DEFAULT_UI_SETTINGS.auth.authOrder,
+        };
+        const fallback = Number(auth.agentFallbackSecs);
+        auth.agentFallbackSecs =
+          Number.isFinite(fallback) && fallback >= 0 ? Math.min(Math.round(fallback), 60) : DEFAULT_UI_SETTINGS.auth.agentFallbackSecs;
         const merged = {
           ...DEFAULT_UI_SETTINGS,
           ...s,
           terminal: { ...DEFAULT_UI_SETTINGS.terminal, ...(s.terminal ?? {}) },
           transfer: { ...DEFAULT_UI_SETTINGS.transfer, ...(s.transfer ?? {}) },
           sidebar,
+          auth,
         };
         merged.accentColor = normalizeHexColor(merged.accentColor);
         merged.terminal.cursorStyle = normalizeCursorStyle(merged.terminal.cursorStyle);
@@ -96,6 +109,10 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
     setUi((prev) => ({ ...prev, sidebar: { ...prev.sidebar, ...patch } }));
   }, []);
 
+  const updateAuth = useCallback((patch: Partial<AuthSettings>) => {
+    setUi((prev) => ({ ...prev, auth: { ...prev.auth, ...patch } }));
+  }, []);
+
   const save = useCallback(async () => {
     try {
       await setUiSettings(ui);
@@ -105,7 +122,7 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
     }
   }, [ui, notify]);
 
-  return { ui, update, updateTerminal, updateTransfer, updateSidebar, save };
+  return { ui, update, updateTerminal, updateTransfer, updateSidebar, updateAuth, save };
 }
 
 /** Clamp the persisted sidebar width into the valid range (200–560 px). */

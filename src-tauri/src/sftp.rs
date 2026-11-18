@@ -322,14 +322,31 @@ pub fn open(
     spec: &LaunchSpec,
     password: Option<String>,
 ) -> Result<(SftpSession, String), String> {
+    let auth = crate::store::get_ui_settings().auth;
+    let has_credential =
+        !spec.private_key.is_empty() || password.as_deref().map_or(false, |p| !p.is_empty());
+    let (export_agent, identities_only) = auth.session_policy(has_credential);
+
     let mut cmd = Command::new("sftp");
-    for a in spec.sftp_args() {
+    // sftp_args() ends with the host target, so the auth policy options
+    // (IdentitiesOnly pinning) must go before it.
+    let mut argv = spec.sftp_args();
+    let host = argv.pop().unwrap_or_default();
+    if identities_only {
+        argv.push("-o".into());
+        argv.push("IdentitiesOnly=yes".into());
+    }
+    argv.push(host);
+    for a in argv {
         cmd.arg(a);
     }
     cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    // Export the key-manager agent socket (Phase 4) so the sftp child can use
-    // agent keys too (and ForwardAgent when the spec asks for it).
-    if let Some(sock) = crate::agent::configured_socket() {
+    // SSH auth ordering (issue #8): export the key-manager agent socket so the
+    // sftp child can use agent keys too (and ForwardAgent when the spec asks
+    // for it), unless the policy pins the session credential agent-free.
+    if export_agent
+        && let Some(sock) = crate::agent::configured_socket()
+    {
         cmd.env("SSH_AUTH_SOCK", &sock);
     }
 
