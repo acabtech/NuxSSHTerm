@@ -153,6 +153,8 @@ export interface UiSettings {
   showConfig: boolean;
   /** Primary accent color as a CSS hex string (e.g. `#3b82f6`). */
   accentColor: string;
+  /** Auto-lock the encrypted vault after N minutes of inactivity while unlocked. 0 disables. */
+  vaultAutoLockMinutes: number;
   terminal: TerminalSettings;
   transfer: TransferSettings;
 }
@@ -162,6 +164,7 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   fontScale: 1,
   showConfig: true,
   accentColor: "#3b82f6",
+  vaultAutoLockMinutes: 0,
   terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true, cursorStyle: "block" },
   transfer: { confirmBeforeOverwrite: true, confirmBeforeDelete: true, defaultLocalPath: "" },
 };

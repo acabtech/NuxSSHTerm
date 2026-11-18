@@ -39,6 +39,11 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
         };
         merged.accentColor = normalizeHexColor(merged.accentColor);
         merged.terminal.cursorStyle = normalizeCursorStyle(merged.terminal.cursorStyle);
+        const lockMins = Number((merged as UiSettings).vaultAutoLockMinutes);
+        merged.vaultAutoLockMinutes =
+          Number.isFinite(lockMins) && lockMins >= 0
+            ? Math.round(lockMins)
+            : DEFAULT_UI_SETTINGS.vaultAutoLockMinutes;
         setUi(merged);
       } catch {
         // not running under Tauri (vite dev alone) — keep defaults

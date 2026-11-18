@@ -340,6 +340,39 @@ export default function App() {
     [vaultStatus.unlocked, selectedPath, tree, vaultPutPassword, updateNode, notify],
   );
 
+  // Auto-lock the encrypted vault after a period of inactivity while unlocked.
+  useEffect(() => {
+    const minutes = ui.vaultAutoLockMinutes;
+    if (!vaultStatus.unlocked || !minutes || minutes <= 0) return;
+
+    let timer: number | null = null;
+    const ms = minutes * 60_000;
+    const arm = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        void vaultLock()
+          .then(() => notify("Vault auto-locked due to inactivity"))
+          .catch((e) => notify(`Auto-lock failed: ${String(e)}`, "error"));
+      }, ms);
+    };
+
+    const events: Array<keyof WindowEventMap> = [
+      "mousemove",
+      "mousedown",
+      "keydown",
+      "touchstart",
+      "scroll",
+    ];
+    const onActivity = () => arm();
+    for (const ev of events) window.addEventListener(ev, onActivity, { passive: true });
+    arm();
+
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+      for (const ev of events) window.removeEventListener(ev, onActivity);
+    };
+  }, [vaultStatus.unlocked, ui.vaultAutoLockMinutes, vaultLock, notify]);
+
   // Settings import is the Phase 2 wizard: preview → map → merge/save.
   const handleImportSessions = useCallback(
     (nodes: SessionNode[], summary: { count: number; format: string; warnings: string[]; merge: boolean }) => {

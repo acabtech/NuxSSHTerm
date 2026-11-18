@@ -59,6 +59,10 @@ fn default_true() -> bool {
     true
 }
 
+fn default_vault_auto_lock_minutes() -> u32 {
+    0
+}
+
 /// File transfer preferences for the SFTP commander (v0.5.x modernization).
 /// Everything here is non-secret and safe to store in plain `settings.json`.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -97,6 +101,10 @@ pub struct UiSettings {
     pub show_config: bool,
     /// Primary accent color as a CSS hex string (e.g. "#3b82f6").
     pub accent_color: String,
+    /// Auto-lock the encrypted vault after this many minutes of inactivity
+    /// while unlocked. 0 disables auto-lock.
+    #[serde(default = "default_vault_auto_lock_minutes")]
+    pub vault_auto_lock_minutes: u32,
     /// Terminal rendering preferences.
     pub terminal: TerminalSettings,
     /// SFTP commander / file transfer preferences.
@@ -110,6 +118,7 @@ impl Default for UiSettings {
             font_scale: 1.0,
             show_config: true,
             accent_color: "#3b82f6".to_string(),
+            vault_auto_lock_minutes: default_vault_auto_lock_minutes(),
             terminal: TerminalSettings::default(),
             transfer: TransferSettings::default(),
         }

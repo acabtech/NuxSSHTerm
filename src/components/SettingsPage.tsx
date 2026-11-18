@@ -38,7 +38,6 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
 
   // Simulated (per mockup) — real backend wiring lands with v0.6.
   const [agent] = useState(true);
-  const [rememberUnlock] = useState(true);
   const [keyPath] = useState("~/.ssh/id_ed25519");
 
   return (
@@ -186,16 +185,27 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
             <label className="row">
               <input type="checkbox" checked={agent} readOnly /> Use system SSH agent
             </label>
-            <label className="row">
-              <input type="checkbox" checked={rememberUnlock} readOnly /> Remember vault unlock for session
+            <label>
+              Vault auto-lock
+              <select
+                value={ui.vaultAutoLockMinutes}
+                onChange={(e) => onPatch({ vaultAutoLockMinutes: parseInt(e.target.value, 10) || 0 })}
+              >
+                <option value={0}>Never</option>
+                <option value={5}>After 5 minutes of inactivity</option>
+                <option value={15}>After 15 minutes of inactivity</option>
+                <option value={30}>After 30 minutes of inactivity</option>
+                <option value={60}>After 60 minutes of inactivity</option>
+              </select>
             </label>
             <label>
               Default key path
               <input value={keyPath} readOnly />
             </label>
             <div className="note">
-              Security actions are simulated here — manage the real agent via Tools → SSH Key Manager and the
-              vault via Tools → Master Password…
+              Vault auto-lock is applied while the vault is unlocked; any mouse/keyboard/touch activity
+              resets the timer. Agent and default-key options are still simulated — manage the real agent via
+              Tools → SSH Key Manager and the vault via Tools → Master Password…
             </div>
           </div>
         )}
