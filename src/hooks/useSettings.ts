@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getUiSettings, setUiSettings } from "../api";
+import { normalizeHexColor } from "../lib/color";
 import { DEFAULT_UI_SETTINGS, type UiSettings } from "../types";
 
 /**
  * Owns the persisted UI chrome settings (v0.5.0 modernization): density,
- * font scale, configuration-rail visibility, and terminal preferences.
+ * font scale, accent color, configuration-rail visibility, and terminal preferences.
  *
  * On mount the settings load from the Tauri backend; a failing load (e.g. when
  * the frontend runs outside Tauri) silently falls back to defaults so the UI
@@ -19,7 +20,13 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
     (async () => {
       try {
         const s = await getUiSettings();
-        setUi({ ...DEFAULT_UI_SETTINGS, ...s, terminal: { ...DEFAULT_UI_SETTINGS.terminal, ...(s.terminal ?? {}) } });
+        const merged = {
+          ...DEFAULT_UI_SETTINGS,
+          ...s,
+          terminal: { ...DEFAULT_UI_SETTINGS.terminal, ...(s.terminal ?? {}) },
+        };
+        merged.accentColor = normalizeHexColor(merged.accentColor);
+        setUi(merged);
       } catch {
         // not running under Tauri (vite dev alone) — keep defaults
       } finally {

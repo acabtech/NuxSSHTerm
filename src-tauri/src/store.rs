@@ -54,6 +54,8 @@ pub struct UiSettings {
     pub font_scale: f64,
     /// Show the configuration block under the connections rail.
     pub show_config: bool,
+    /// Primary accent color as a CSS hex string (e.g. "#3b82f6").
+    pub accent_color: String,
     /// Terminal rendering preferences.
     pub terminal: TerminalSettings,
 }
@@ -64,6 +66,7 @@ impl Default for UiSettings {
             density: "comfortable".to_string(),
             font_scale: 1.0,
             show_config: true,
+            accent_color: "#3b82f6".to_string(),
             terminal: TerminalSettings::default(),
         }
     }

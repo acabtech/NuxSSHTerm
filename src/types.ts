@@ -139,6 +139,8 @@ export interface UiSettings {
   density: Density;
   fontScale: number;
   showConfig: boolean;
+  /** Primary accent color as a CSS hex string (e.g. `#3b82f6`). */
+  accentColor: string;
   terminal: TerminalSettings;
 }
 
@@ -146,6 +148,7 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   density: "comfortable",
   fontScale: 1,
   showConfig: true,
+  accentColor: "#3b82f6",
   terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true },
 };
 

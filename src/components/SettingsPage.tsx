@@ -4,6 +4,7 @@
 // behavior). Shortcuts & About closes the loop.
 
 import { useState } from "react";
+import { accentSoftFromHex, normalizeHexColor } from "../lib/color";
 import type { UiSettings } from "../types";
 
 type Section = "appearance" | "terminal" | "conn" | "transfer" | "shortcuts";
@@ -73,7 +74,28 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onSave, onBack }: P
             </label>
             <label>
               Accent color
-              <input value="#3b82f6" readOnly title="Custom accent color lands in v0.6" />
+              <div className="row" style={{ gap: 8, alignItems: "center" }}>
+                <input
+                  type="color"
+                  value={normalizeHexColor(ui.accentColor)}
+                  onChange={(e) => onPatch({ accentColor: e.target.value })}
+                  aria-label="Pick accent color"
+                  style={{ width: 44, minWidth: 44, padding: 2, height: 34 }}
+                />
+                <input
+                  type="text"
+                  value={ui.accentColor}
+                  onChange={(e) => onPatch({ accentColor: e.target.value })}
+                  onBlur={() => onPatch({ accentColor: normalizeHexColor(ui.accentColor) })}
+                  spellCheck={false}
+                  placeholder="#3b82f6"
+                  aria-label="Accent color hex value"
+                />
+              </div>
+              <div className="note">
+                Applied live across focus, hover, and selection highlights. Derived soft fill:{" "}
+                <span className="mono">{accentSoftFromHex(normalizeHexColor(ui.accentColor))}</span>
+              </div>
             </label>
             <label>
               Density

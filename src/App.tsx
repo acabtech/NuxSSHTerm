@@ -10,7 +10,7 @@
 // "which tab is current"; useTabs' own activeTab is synced to it so
 // clipboard/paste helpers keep working.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { MenuBar } from "./components/MenuBar";
 import { ConfigPanel } from "./components/ConfigPanel";
 import { SessionTree, type TreeCallbacks } from "./components/SessionTree";
@@ -39,6 +39,7 @@ import {
   useLayout,
 } from "./hooks/useLayout";
 import { buildMenus } from "./lib/menuActions";
+import { accentSoftFromHex, normalizeHexColor } from "./lib/color";
 import { emptyNode, type SessionNode, type Tab } from "./types";
 import { applyPasswords, clearPasswords, getAt, insertAt, pathKey } from "./lib/tree";
 
@@ -544,10 +545,17 @@ export default function App() {
 
   const ctxNode = ctx ? getAt(tree, ctx.path) : null;
 
+  const accent = normalizeHexColor(ui.accentColor);
+  const appStyle = {
+    fontSize: `${Math.round(14 * ui.fontScale)}px`,
+    "--accent": accent,
+    "--accent-soft": accentSoftFromHex(accent),
+  } as CSSProperties;
+
   return (
     <div
       className={`app density-${ui.density}`}
-      style={{ fontSize: `${Math.round(14 * ui.fontScale)}px` }}
+      style={appStyle}
       onMouseDown={() => {
         setCtx(null);
         setTabCtx(null);
