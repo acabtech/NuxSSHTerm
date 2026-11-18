@@ -55,6 +55,17 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
           typeof (merged as UiSettings).defaultPrivateKey === "string"
             ? (merged as UiSettings).defaultPrivateKey
             : DEFAULT_UI_SETTINGS.defaultPrivateKey;
+        const sbw = Number((merged as UiSettings).sidebarWidth);
+        merged.sidebarWidth =
+          Number.isFinite(sbw) && sbw > 0
+            ? Math.min(Math.max(Math.round(sbw), 220), 640)
+            : DEFAULT_UI_SETTINGS.sidebarWidth;
+        const sbd = Number((merged as UiSettings).sidebarCollapseDelayMs);
+        merged.sidebarCollapseDelayMs =
+          Number.isFinite(sbd) && sbd >= 0
+            ? Math.min(Math.round(sbd), 5000)
+            : DEFAULT_UI_SETTINGS.sidebarCollapseDelayMs;
+        merged.sidebarPinned = Boolean((merged as UiSettings).sidebarPinned);
         setUi(merged);
       } catch {
         // not running under Tauri (vite dev alone) — keep defaults

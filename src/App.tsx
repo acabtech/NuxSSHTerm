@@ -152,6 +152,114 @@ export default function App() {
   const currentTabId = currentLeaf?.tabId ?? null;
   const currentTab = tabs.find((t) => t.id === currentTabId) ?? null;
 
+  // Connections rail: configurable expand/collapse + persisted width (issues #7, #10).
+  const [railHover, setRailHover] = useState(false);
+  const [railFocusWithin, setRailFocusWithin] = useState(false);
+  const railCollapseTimer = useRef<number | null>(null);
+  const railResizing = useRef(false);
+
+  const railExpanded = ui.sidebarPinned || railHover || railFocusWithin;
+
+  useEffect(() => {
+    return () => {
+      if (railCollapseTimer.current !== null) {
+        window.clearTimeout(railCollapseTimer.current);
+      }
+    };
+  }, []);
+
+  const clearRailCollapseTimer = useCallback(() => {
+    if (railCollapseTimer.current !== null) {
+      window.clearTimeout(railCollapseTimer.current);
+      railCollapseTimer.current = null;
+    }
+  }, []);
+
+  const scheduleRailCollapse = useCallback(() => {
+    clearRailCollapseTimer();
+    if (ui.sidebarPinned || railResizing.current) return;
+    const delay = Math.max(0, ui.sidebarCollapseDelayMs || 0);
+    if (delay === 0) {
+      setRailHover(false);
+      setRailFocusWithin(false);
+      return;
+    }
+    railCollapseTimer.current = window.setTimeout(() => {
+      railCollapseTimer.current = null;
+      if (railResizing.current) return;
+      setRailHover(false);
+      setRailFocusWithin(false);
+    }, delay);
+  }, [clearRailCollapseTimer, ui.sidebarPinned, ui.sidebarCollapseDelayMs]);
+
+  const onRailPointerEnter = useCallback(() => {
+    clearRailCollapseTimer();
+    setRailHover(true);
+  }, [clearRailCollapseTimer]);
+
+  const onRailPointerLeave = useCallback(() => {
+    if (ui.sidebarPinned) {
+      setRailHover(false);
+      return;
+    }
+    if (railResizing.current) {
+      setRailHover(false);
+      return;
+    }
+    scheduleRailCollapse();
+  }, [ui.sidebarPinned, scheduleRailCollapse]);
+
+  const onRailFocusCapture = useCallback(() => {
+    clearRailCollapseTimer();
+    setRailFocusWithin(true);
+  }, [clearRailCollapseTimer]);
+
+  const onRailBlurCapture = useCallback((e: React.FocusEvent<HTMLDivElement>) => {
+    const next = e.relatedTarget as Node | null;
+    if (next && e.currentTarget.contains(next)) return;
+    if (ui.sidebarPinned) {
+      setRailFocusWithin(false);
+      return;
+    }
+    if (railResizing.current) {
+      setRailFocusWithin(false);
+      return;
+    }
+    scheduleRailCollapse();
+  }, [ui.sidebarPinned, scheduleRailCollapse]);
+
+  const startRailResize = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!railExpanded) return;
+      e.preventDefault();
+      e.stopPropagation();
+      clearRailCollapseTimer();
+      setRailHover(true);
+      railResizing.current = true;
+      const startX = e.clientX;
+      const startWidth = ui.sidebarWidth;
+      const prevCursor = document.body.style.cursor;
+      const prevSelect = document.body.style.userSelect;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      const move = (ev: MouseEvent) => {
+        const delta = ev.clientX - startX;
+        const next = Math.min(Math.max(Math.round(startWidth + delta), 220), 640);
+        patchUi({ sidebarWidth: next });
+      };
+      const up = () => {
+        railResizing.current = false;
+        document.body.style.cursor = prevCursor;
+        document.body.style.userSelect = prevSelect;
+        window.removeEventListener("mousemove", move);
+        window.removeEventListener("mouseup", up);
+      };
+      window.addEventListener("mousemove", move);
+      window.addEventListener("mouseup", up);
+    },
+    [railExpanded, ui.sidebarWidth, patchUi, clearRailCollapseTimer],
+  );
+
   // Sync useTabs' own activeTab (clipboard/paste helpers rely on it).
   useEffect(() => {
     setActiveTab(currentTabId);
@@ -628,7 +736,14 @@ export default function App() {
         />
       ) : (
         <div className="workspace">
-          <div className="rail">
+          <div
+            className={`rail${railExpanded ? " expanded" : ""}${ui.sidebarPinned ? " pinned" : ""}`}
+            style={{ ["--sidebar-width" as string]: `${ui.sidebarWidth}px` }}
+            onMouseEnter={onRailPointerEnter}
+            onMouseLeave={onRailPointerLeave}
+            onFocusCapture={onRailFocusCapture}
+            onBlurCapture={onRailBlurCapture}
+          >
             <div className="rail-inner">
               <div className="rail-collapsed-icons">
                 <div className="rail-icon active" title="Connections">
@@ -687,6 +802,13 @@ export default function App() {
                 )}
               </div>
             </div>
+            {railExpanded && (
+              <div
+                className="rail-resize-handle"
+                title="Drag to resize sidebar"
+                onMouseDown={startRailResize}
+              />
+            )}
           </div>
 
           <main className="work" aria-label="Terminal work area">

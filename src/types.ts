@@ -161,6 +161,12 @@ export interface UiSettings {
   defaultForwardAgent: boolean;
   /** Default for new connections: private key path (e.g. ~/.ssh/id_ed25519). */
   defaultPrivateKey: string;
+  /** Expanded connections sidebar width in pixels (persisted, clamped in UI). */
+  sidebarWidth: number;
+  /** Delay in ms before collapsing the sidebar after hover/focus leaves (0 = immediate). */
+  sidebarCollapseDelayMs: number;
+  /** Keep the connections sidebar expanded (never auto-collapse). */
+  sidebarPinned: boolean;
   terminal: TerminalSettings;
   transfer: TransferSettings;
 }
@@ -173,6 +179,9 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   vaultAutoLockMinutes: 0,
   defaultForwardAgent: false,
   defaultPrivateKey: "",
+  sidebarWidth: 320,
+  sidebarCollapseDelayMs: 0,
+  sidebarPinned: false,
   terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true, cursorStyle: "block", bellStyle: "visual" },
   transfer: { confirmBeforeOverwrite: true, confirmBeforeDelete: true, defaultLocalPath: "" },
 };

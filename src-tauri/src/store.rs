@@ -71,6 +71,14 @@ fn default_vault_auto_lock_minutes() -> u32 {
     0
 }
 
+fn default_sidebar_width() -> u32 {
+    320
+}
+
+fn default_sidebar_collapse_delay_ms() -> u32 {
+    0
+}
+
 /// File transfer preferences for the SFTP commander (v0.5.x modernization).
 /// Everything here is non-secret and safe to store in plain `settings.json`.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -119,6 +127,15 @@ pub struct UiSettings {
     /// Default for new connections: private key path (e.g. ~/.ssh/id_ed25519).
     #[serde(default)]
     pub default_private_key: String,
+    /// Expanded connections sidebar width in pixels.
+    #[serde(default = "default_sidebar_width")]
+    pub sidebar_width: u32,
+    /// Delay in ms before collapsing the sidebar after hover/focus leaves (0 = immediate).
+    #[serde(default = "default_sidebar_collapse_delay_ms")]
+    pub sidebar_collapse_delay_ms: u32,
+    /// Keep the connections sidebar expanded (never auto-collapse).
+    #[serde(default)]
+    pub sidebar_pinned: bool,
     /// Terminal rendering preferences.
     pub terminal: TerminalSettings,
     /// SFTP commander / file transfer preferences.
@@ -135,6 +152,9 @@ impl Default for UiSettings {
             vault_auto_lock_minutes: default_vault_auto_lock_minutes(),
             default_forward_agent: false,
             default_private_key: String::new(),
+            sidebar_width: default_sidebar_width(),
+            sidebar_collapse_delay_ms: default_sidebar_collapse_delay_ms(),
+            sidebar_pinned: false,
             terminal: TerminalSettings::default(),
             transfer: TransferSettings::default(),
         }

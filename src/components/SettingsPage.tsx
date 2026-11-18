@@ -111,6 +111,31 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
                 onChange={(e) => onPatch({ fontScale: parseFloat(e.target.value) })}
               />
             </label>
+            <label>
+              Sidebar auto-collapse
+              <input
+                type="range"
+                min={0}
+                max={2100}
+                step={100}
+                value={ui.sidebarPinned ? 2100 : Math.min(Math.max(ui.sidebarCollapseDelayMs, 0), 2000)}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10) || 0;
+                  if (v >= 2100) {
+                    onPatch({ sidebarPinned: true });
+                  } else {
+                    onPatch({ sidebarPinned: false, sidebarCollapseDelayMs: v });
+                  }
+                }}
+              />
+              <div className="note">
+                {ui.sidebarPinned
+                  ? "Never collapse (pinned)"
+                  : ui.sidebarCollapseDelayMs <= 0
+                    ? "Collapse immediately on leave"
+                    : `Collapse after ${ui.sidebarCollapseDelayMs} ms`}
+              </div>
+            </label>
             <label className="row">
               <input
                 type="checkbox"
