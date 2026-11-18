@@ -46,6 +46,7 @@ export function TerminalView({ tab, active, term: termSettings }: { tab: Tab; ac
       fontFamily: '"JetBrains Mono", ui-monospace, "DejaVu Sans Mono", Consolas, monospace',
       fontSize: termSettings.fontSize,
       cursorBlink: termSettings.cursorBlink,
+      cursorStyle: termSettings.cursorStyle,
       scrollback: termSettings.scrollback,
       allowProposedApi: true,
       theme: {
@@ -142,6 +143,7 @@ export function TerminalView({ tab, active, term: termSettings }: { tab: Tab; ac
     if (!t) return;
     t.options.fontSize = termSettings.fontSize;
     t.options.cursorBlink = termSettings.cursorBlink;
+    t.options.cursorStyle = termSettings.cursorStyle;
     t.options.scrollback = termSettings.scrollback;
     try {
       fitRef.current?.fit();
@@ -149,7 +151,7 @@ export function TerminalView({ tab, active, term: termSettings }: { tab: Tab; ac
     } catch {
       /* ignore */
     }
-  }, [termSettings.fontSize, termSettings.cursorBlink, termSettings.scrollback, tab.id]);
+  }, [termSettings.fontSize, termSettings.cursorBlink, termSettings.cursorStyle, termSettings.scrollback, tab.id]);
 
   // refit + focus when this tab becomes visible
   useEffect(() => {

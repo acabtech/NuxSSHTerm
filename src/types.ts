@@ -127,11 +127,15 @@ export function targetOf(n: SessionNode): string {
 /** Density token for the chrome (spacing). Mirrors DESIGN.md `spacing.unit`. */
 export type Density = "comfortable" | "compact";
 
+/** xterm.js cursor style (mirrors the Rust `TerminalSettings.cursor_style`). */
+export type CursorStyle = "block" | "underline" | "bar";
+
 /** xterm.js terminal preferences (mirrors the Rust `TerminalSettings`). */
 export interface TerminalSettings {
   fontSize: number;
   scrollback: number;
   cursorBlink: boolean;
+  cursorStyle: CursorStyle;
 }
 
 /** Persisted, non-secret chrome preferences (mirrors the Rust `UiSettings`). */
@@ -149,7 +153,7 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   fontScale: 1,
   showConfig: true,
   accentColor: "#3b82f6",
-  terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true },
+  terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true, cursorStyle: "block" },
 };
 
 /** A node in the tileable work-area layout tree. */

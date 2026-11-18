@@ -25,6 +25,10 @@ pub fn settings_path() -> PathBuf {
     config_dir().join("settings.json")
 }
 
+fn default_cursor_style() -> String {
+    "block".to_string()
+}
+
 /// Terminal rendering preferences (xterm.js), persisted so they survive restarts.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase", default)]
@@ -35,11 +39,19 @@ pub struct TerminalSettings {
     pub scrollback: u32,
     /// xterm.js `cursorBlink`.
     pub cursor_blink: bool,
+    /// xterm.js `cursorStyle` ("block" | "underline" | "bar").
+    #[serde(default = "default_cursor_style")]
+    pub cursor_style: String,
 }
 
 impl Default for TerminalSettings {
     fn default() -> Self {
-        Self { font_size: 13, scrollback: 10000, cursor_blink: true }
+        Self {
+            font_size: 13,
+            scrollback: 10000,
+            cursor_blink: true,
+            cursor_style: default_cursor_style(),
+        }
     }
 }
 

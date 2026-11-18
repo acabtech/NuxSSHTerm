@@ -5,7 +5,7 @@
 
 import { useState } from "react";
 import { accentSoftFromHex, normalizeHexColor } from "../lib/color";
-import type { UiSettings } from "../types";
+import type { CursorStyle, UiSettings } from "../types";
 
 type Section = "appearance" | "terminal" | "conn" | "transfer" | "shortcuts";
 
@@ -153,6 +153,17 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onSave, onBack }: P
                 onChange={(e) => onPatchTerminal({ cursorBlink: e.target.checked })}
               />
               Cursor blink
+            </label>
+            <label>
+              Cursor style
+              <select
+                value={ui.terminal.cursorStyle}
+                onChange={(e) => onPatchTerminal({ cursorStyle: e.target.value as CursorStyle })}
+              >
+                <option value="block">Block</option>
+                <option value="underline">Underline</option>
+                <option value="bar">Bar</option>
+              </select>
             </label>
             <label>
               Scrollback lines

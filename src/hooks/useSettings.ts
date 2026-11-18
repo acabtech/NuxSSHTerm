@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getUiSettings, setUiSettings } from "../api";
 import { normalizeHexColor } from "../lib/color";
-import { DEFAULT_UI_SETTINGS, type UiSettings } from "../types";
+import { DEFAULT_UI_SETTINGS, type CursorStyle, type UiSettings } from "../types";
+
+const CURSOR_STYLES: readonly CursorStyle[] = ["block", "underline", "bar"];
+
+function normalizeCursorStyle(v: unknown): CursorStyle {
+  return CURSOR_STYLES.includes(v as CursorStyle) ? (v as CursorStyle) : DEFAULT_UI_SETTINGS.terminal.cursorStyle;
+}
 
 /**
  * Owns the persisted UI chrome settings (v0.5.0 modernization): density,
@@ -26,6 +32,7 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
           terminal: { ...DEFAULT_UI_SETTINGS.terminal, ...(s.terminal ?? {}) },
         };
         merged.accentColor = normalizeHexColor(merged.accentColor);
+        merged.terminal.cursorStyle = normalizeCursorStyle(merged.terminal.cursorStyle);
         setUi(merged);
       } catch {
         // not running under Tauri (vite dev alone) — keep defaults
