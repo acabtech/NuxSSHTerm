@@ -138,6 +138,14 @@ export interface TerminalSettings {
   cursorStyle: CursorStyle;
 }
 
+/** SFTP commander / file transfer preferences (mirrors the Rust `TransferSettings`). */
+export interface TransferSettings {
+  confirmBeforeOverwrite: boolean;
+  confirmBeforeDelete: boolean;
+  /** Initial local working directory; empty falls back to $HOME. */
+  defaultLocalPath: string;
+}
+
 /** Persisted, non-secret chrome preferences (mirrors the Rust `UiSettings`). */
 export interface UiSettings {
   density: Density;
@@ -146,6 +154,7 @@ export interface UiSettings {
   /** Primary accent color as a CSS hex string (e.g. `#3b82f6`). */
   accentColor: string;
   terminal: TerminalSettings;
+  transfer: TransferSettings;
 }
 
 export const DEFAULT_UI_SETTINGS: UiSettings = {
@@ -154,6 +163,7 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   showConfig: true,
   accentColor: "#3b82f6",
   terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true, cursorStyle: "block" },
+  transfer: { confirmBeforeOverwrite: true, confirmBeforeDelete: true, defaultLocalPath: "" },
 };
 
 /** A node in the tileable work-area layout tree. */

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getUiSettings, setUiSettings } from "../api";
 import { normalizeHexColor } from "../lib/color";
-import { DEFAULT_UI_SETTINGS, type CursorStyle, type UiSettings } from "../types";
+import {
+  DEFAULT_UI_SETTINGS,
+  type CursorStyle,
+  type TransferSettings,
+  type UiSettings,
+} from "../types";
 
 const CURSOR_STYLES: readonly CursorStyle[] = ["block", "underline", "bar"];
 
@@ -30,6 +35,7 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
           ...DEFAULT_UI_SETTINGS,
           ...s,
           terminal: { ...DEFAULT_UI_SETTINGS.terminal, ...(s.terminal ?? {}) },
+          transfer: { ...DEFAULT_UI_SETTINGS.transfer, ...(s.transfer ?? {}) },
         };
         merged.accentColor = normalizeHexColor(merged.accentColor);
         merged.terminal.cursorStyle = normalizeCursorStyle(merged.terminal.cursorStyle);
@@ -59,6 +65,10 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
     setUi((prev) => ({ ...prev, terminal: { ...prev.terminal, ...patch } }));
   }, []);
 
+  const updateTransfer = useCallback((patch: Partial<TransferSettings>) => {
+    setUi((prev) => ({ ...prev, transfer: { ...prev.transfer, ...patch } }));
+  }, []);
+
   const save = useCallback(async () => {
     try {
       await setUiSettings(ui);
@@ -68,5 +78,5 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
     }
   }, [ui, notify]);
 
-  return { ui, update, updateTerminal, save };
+  return { ui, update, updateTerminal, updateTransfer, save };
 }

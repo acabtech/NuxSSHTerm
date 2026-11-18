@@ -82,7 +82,7 @@ export default function App() {
     [push],
   );
 
-  const { ui, update: patchUi, updateTerminal, save: saveSettings } = useSettings(notify);
+  const { ui, update: patchUi, updateTerminal, updateTransfer, save: saveSettings } = useSettings(notify);
 
   const vault = useVault(notify);
   const {
@@ -573,6 +573,7 @@ export default function App() {
             target={targetForTabId[t.id] ?? null}
             active={t.id === currentTabId && page === "workspace"}
             term={ui.terminal}
+            transfer={ui.transfer}
             onToast={notify}
             onOpenTerminal={handleOpenTerminalFromCommander}
           />
@@ -584,6 +585,7 @@ export default function App() {
           ui={ui}
           onPatch={patchUi}
           onPatchTerminal={updateTerminal}
+          onPatchTransfer={updateTransfer}
           onSave={() => void saveSettings()}
           onBack={() => setPage("workspace")}
         />

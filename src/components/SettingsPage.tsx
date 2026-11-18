@@ -5,7 +5,7 @@
 
 import { useState } from "react";
 import { accentSoftFromHex, normalizeHexColor } from "../lib/color";
-import type { CursorStyle, UiSettings } from "../types";
+import type { CursorStyle, TransferSettings, UiSettings } from "../types";
 
 type Section = "appearance" | "terminal" | "conn" | "transfer" | "shortcuts";
 
@@ -21,11 +21,12 @@ interface Props {
   ui: UiSettings;
   onPatch: (patch: Partial<UiSettings>) => void;
   onPatchTerminal: (patch: Partial<UiSettings["terminal"]>) => void;
+  onPatchTransfer: (patch: Partial<TransferSettings>) => void;
   onSave: () => void;
   onBack: () => void;
 }
 
-export function SettingsPage({ ui, onPatch, onPatchTerminal, onSave, onBack }: Props) {
+export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, onSave, onBack }: Props) {
   const [section, setSection] = useState<Section>("appearance");
   const [saved, setSaved] = useState(false);
 
@@ -39,9 +40,6 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onSave, onBack }: P
   const [agent] = useState(true);
   const [rememberUnlock] = useState(true);
   const [keyPath] = useState("~/.ssh/id_ed25519");
-  const [concurrent] = useState(2);
-  const [confirmOverwrite] = useState(true);
-  const [localPath] = useState("~/Downloads");
 
   return (
     <div className="settings-page">
@@ -207,18 +205,36 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onSave, onBack }: P
             <h3>File Transfer</h3>
             <label>
               Concurrent transfers
-              <input value={String(concurrent)} readOnly />
+              <input value="1" readOnly title="Parallel transfer engine lands with the russh driver" />
             </label>
             <label className="row">
-              <input type="checkbox" checked={confirmOverwrite} readOnly /> Confirm before overwrite
+              <input
+                type="checkbox"
+                checked={ui.transfer.confirmBeforeOverwrite}
+                onChange={(e) => onPatchTransfer({ confirmBeforeOverwrite: e.target.checked })}
+              />
+              Confirm before overwrite
+            </label>
+            <label className="row">
+              <input
+                type="checkbox"
+                checked={ui.transfer.confirmBeforeDelete}
+                onChange={(e) => onPatchTransfer({ confirmBeforeDelete: e.target.checked })}
+              />
+              Confirm before delete
             </label>
             <label>
               Default local path
-              <input value={localPath} readOnly />
+              <input
+                type="text"
+                value={ui.transfer.defaultLocalPath}
+                onChange={(e) => onPatchTransfer({ defaultLocalPath: e.target.value })}
+                placeholder="(use home directory)"
+              />
             </label>
             <div className="note">
-              Transfer engine options land with the russh driver; transfers currently run through the SFTP
-              commander tabs.
+              Applied to new SFTP commander tabs. Overwrite checks run before copy/move; delete confirmation
+              respects the toggle above. Concurrent transfer engine options land with the russh driver.
             </div>
           </div>
         )}

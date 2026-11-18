@@ -55,6 +55,35 @@ impl Default for TerminalSettings {
     }
 }
 
+fn default_true() -> bool {
+    true
+}
+
+/// File transfer preferences for the SFTP commander (v0.5.x modernization).
+/// Everything here is non-secret and safe to store in plain `settings.json`.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TransferSettings {
+    /// Prompt before overwriting an existing file/folder in the destination.
+    #[serde(default = "default_true")]
+    pub confirm_before_overwrite: bool,
+    /// Prompt before deleting a file/folder.
+    #[serde(default = "default_true")]
+    pub confirm_before_delete: bool,
+    /// Initial local working directory for the commander; empty falls back to $HOME.
+    pub default_local_path: String,
+}
+
+impl Default for TransferSettings {
+    fn default() -> Self {
+        Self {
+            confirm_before_overwrite: true,
+            confirm_before_delete: true,
+            default_local_path: String::new(),
+        }
+    }
+}
+
 /// The v0.5.0 modernized UI chrome settings (design-system tweaks + terminal).
 /// Everything here is non-secret and safe to store in plain `settings.json`.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -70,6 +99,8 @@ pub struct UiSettings {
     pub accent_color: String,
     /// Terminal rendering preferences.
     pub terminal: TerminalSettings,
+    /// SFTP commander / file transfer preferences.
+    pub transfer: TransferSettings,
 }
 
 impl Default for UiSettings {
@@ -80,6 +111,7 @@ impl Default for UiSettings {
             show_config: true,
             accent_color: "#3b82f6".to_string(),
             terminal: TerminalSettings::default(),
+            transfer: TransferSettings::default(),
         }
     }
 }

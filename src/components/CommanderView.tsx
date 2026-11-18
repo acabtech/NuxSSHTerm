@@ -12,7 +12,7 @@ import {
   type SftpEntry,
   type SftpOp,
 } from "../api";
-import type { Tab } from "../types";
+import type { Tab, TransferSettings } from "../types";
 import type { ToastKind } from "../hooks/useToasts";
 
 /**
@@ -29,6 +29,7 @@ type Side = "local" | "remote";
 interface Props {
   tab: Tab;
   active: boolean;
+  transfer: TransferSettings;
   onToast: (msg: string, kind?: ToastKind) => void;
   /** Ctrl+T in the commander opens a terminal tab for the same host. */
   onOpenTerminal: (tab: Tab) => void;
@@ -63,7 +64,7 @@ function sortEntries<T extends { is_dir: boolean; name: string }>(a: T, b: T): n
   return a.name.localeCompare(b.name);
 }
 
-export function CommanderView({ tab, active, onToast, onOpenTerminal }: Props) {
+export function CommanderView({ tab, active, transfer, onToast, onOpenTerminal }: Props) {
   const [remoteCwd, setRemoteCwd] = useState<string | null>(null);
   const [localCwd, setLocalCwd] = useState<string>("");
   const [remoteEntries, setRemoteEntries] = useState<SftpEntry[]>([]);
@@ -127,12 +128,22 @@ export function CommanderView({ tab, active, onToast, onOpenTerminal }: Props) {
     (async () => {
       try {
         const [cwd, home] = await Promise.all([sftpOpen(tab.id, tab.spec, tab.password), homeDir()]);
+        let initialLocal = home;
+        const preferred = (transfer.defaultLocalPath || "").trim();
+        if (preferred) {
+          try {
+            await localList(preferred);
+            initialLocal = preferred;
+          } catch {
+            initialLocal = home;
+          }
+        }
         if (cancelled) return;
         setRemoteCwd(cwd);
-        setLocalCwd(home);
+        setLocalCwd(initialLocal);
         setStatus(`${tab.target} — SFTP connected`);
         void refreshRemote(cwd);
-        void refreshLocal(home);
+        void refreshLocal(initialLocal);
       } catch (e) {
         if (!cancelled) {
           setFatal(String(e));
@@ -145,7 +156,7 @@ export function CommanderView({ tab, active, onToast, onOpenTerminal }: Props) {
       mounted.current = false;
       void sftpClose(tab.id).catch(() => {});
     };
-    // tab.id is the session identity; spec changes must not respawn
+    // tab.id is the session identity; spec/transfer prefs must not respawn
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab.id]);
 
@@ -207,6 +218,13 @@ export function CommanderView({ tab, active, onToast, onOpenTerminal }: Props) {
       return;
     }
     if (src === "remote") {
+      if (
+        transfer.confirmBeforeOverwrite &&
+        localEntries.some((e) => e.name === entry.name) &&
+        !window.confirm(`"${entry.name}" already exists locally. Overwrite it?`)
+      ) {
+        return;
+      }
       const target = joinPath(localCwd, entry.name);
       const ok = await run(`Downloading ${entry.name}…`, () =>
         sftpOp(tab.id, { op: "get", remote: (entry as SftpEntry).path, local: target }, 600),
@@ -217,6 +235,13 @@ export function CommanderView({ tab, active, onToast, onOpenTerminal }: Props) {
         void refreshBoth(remoteCwd, localCwd);
       }
     } else {
+      if (
+        transfer.confirmBeforeOverwrite &&
+        remoteEntries.some((e) => e.name === entry.name) &&
+        !window.confirm(`"${entry.name}" already exists on the remote host. Overwrite it?`)
+      ) {
+        return;
+      }
       const target = joinPath(remoteCwd ?? "/", entry.name);
       const ok = await run(`Uploading ${entry.name}…`, () =>
         sftpOp(tab.id, { op: "put", local: joinPath(localCwd, entry.name), remote: target }, 600),
@@ -228,7 +253,7 @@ export function CommanderView({ tab, active, onToast, onOpenTerminal }: Props) {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus, selectedEntry, localCwd, remoteCwd, tab.id, run, onToast, refreshBoth]);
+  }, [focus, selectedEntry, localCwd, remoteCwd, localEntries, remoteEntries, transfer.confirmBeforeOverwrite, tab.id, run, onToast, refreshBoth]);
 
   const moveSelection = useCallback(async () => {
     const src = focus;
@@ -240,6 +265,13 @@ export function CommanderView({ tab, active, onToast, onOpenTerminal }: Props) {
     // WinSCP F6 = cross-pane move: copy then delete the source.
     const srcPath = joinPath(src === "remote" ? (remoteCwd ?? "/") : localCwd, entry.name);
     if (src === "remote") {
+      if (
+        transfer.confirmBeforeOverwrite &&
+        localEntries.some((e) => e.name === entry.name) &&
+        !window.confirm(`"${entry.name}" already exists locally. Overwrite it?`)
+      ) {
+        return;
+      }
       const target = joinPath(localCwd, entry.name);
       const ok = await run(`Moving ${entry.name} → local…`, async () => {
         await sftpOp(tab.id, { op: "get", remote: (entry as SftpEntry).path, local: target }, 600);
@@ -250,6 +282,13 @@ export function CommanderView({ tab, active, onToast, onOpenTerminal }: Props) {
         void refreshBoth(remoteCwd, localCwd);
       }
     } else {
+      if (
+        transfer.confirmBeforeOverwrite &&
+        remoteEntries.some((e) => e.name === entry.name) &&
+        !window.confirm(`"${entry.name}" already exists on the remote host. Overwrite it?`)
+      ) {
+        return;
+      }
       const target = joinPath(remoteCwd ?? "/", entry.name);
       const ok = await run(`Moving ${entry.name} → remote…`, async () => {
         await sftpOp(tab.id, { op: "put", local: srcPath, remote: target }, 600);
@@ -261,7 +300,7 @@ export function CommanderView({ tab, active, onToast, onOpenTerminal }: Props) {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus, selectedEntry, localCwd, remoteCwd, tab.id, run, onToast, refreshBoth]);
+  }, [focus, selectedEntry, localCwd, remoteCwd, localEntries, remoteEntries, transfer.confirmBeforeOverwrite, tab.id, run, onToast, refreshBoth]);
 
   const makeDir = useCallback(async () => {
     const name = window.prompt(`Create folder in ${focus === "remote" ? remoteCwd : localCwd}:`);
@@ -293,7 +332,7 @@ export function CommanderView({ tab, active, onToast, onOpenTerminal }: Props) {
       return;
     }
     const what = entry.is_dir ? "folder (recursively)" : "file";
-    if (!window.confirm(`Delete ${what} "${entry.name}"?`)) return;
+    if (transfer.confirmBeforeDelete && !window.confirm(`Delete ${what} "${entry.name}"?`)) return;
     const path = joinPath(side === "remote" ? (remoteCwd ?? "/") : localCwd, entry.name);
     if (side === "remote") {
       const ok = await run(`Deleting ${entry.name}…`, () =>
@@ -311,7 +350,7 @@ export function CommanderView({ tab, active, onToast, onOpenTerminal }: Props) {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus, selectedEntry, remoteCwd, localCwd, tab.id, run, onToast, refreshRemote, refreshLocal]);
+  }, [focus, selectedEntry, remoteCwd, localCwd, transfer.confirmBeforeDelete, tab.id, run, onToast, refreshRemote, refreshLocal]);
 
   const showProperties = useCallback(() => {
     const side = focus;

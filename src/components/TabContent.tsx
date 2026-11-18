@@ -9,7 +9,7 @@
 
 import { createPortal } from "react-dom";
 import type { Tab } from "../types";
-import type { TerminalSettings } from "../types";
+import type { TerminalSettings, TransferSettings } from "../types";
 import { TerminalView } from "./TerminalView";
 import { CommanderView } from "./CommanderView";
 
@@ -20,15 +20,16 @@ interface Props {
   /** True when this tab's leaf is the active one (drives focus + refit). */
   active: boolean;
   term: TerminalSettings;
+  transfer: TransferSettings;
   onToast: (msg: string, kind?: "info" | "success" | "error") => void;
   /** Ctrl+T in the commander opens a terminal tab for the same host. */
   onOpenTerminal: (tab: Tab) => void;
 }
 
-export function TabContent({ tab, target, active, term, onToast, onOpenTerminal }: Props) {
+export function TabContent({ tab, target, active, term, transfer, onToast, onOpenTerminal }: Props) {
   const view =
     tab.kind === "commander" ? (
-      <CommanderView tab={tab} active={active} onToast={onToast} onOpenTerminal={onOpenTerminal} />
+      <CommanderView tab={tab} active={active} transfer={transfer} onToast={onToast} onOpenTerminal={onOpenTerminal} />
     ) : (
       <TerminalView tab={tab} active={active} term={term} />
     );
