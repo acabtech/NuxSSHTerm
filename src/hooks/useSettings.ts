@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getUiSettings, setUiSettings } from "../api";
 import { normalizeHexColor } from "../lib/color";
+import type { SidebarSettings } from "../types";
 import {
   DEFAULT_UI_SETTINGS,
   type CursorStyle,
@@ -36,11 +37,17 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
     (async () => {
       try {
         const s = await getUiSettings();
+        const sidebar: SidebarSettings = {
+          ...DEFAULT_UI_SETTINGS.sidebar,
+          ...(s.sidebar ?? {}),
+          width: clampSidebarWidth((s.sidebar ?? DEFAULT_UI_SETTINGS.sidebar).width),
+        };
         const merged = {
           ...DEFAULT_UI_SETTINGS,
           ...s,
           terminal: { ...DEFAULT_UI_SETTINGS.terminal, ...(s.terminal ?? {}) },
           transfer: { ...DEFAULT_UI_SETTINGS.transfer, ...(s.transfer ?? {}) },
+          sidebar,
         };
         merged.accentColor = normalizeHexColor(merged.accentColor);
         merged.terminal.cursorStyle = normalizeCursorStyle(merged.terminal.cursorStyle);
@@ -85,6 +92,10 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
     setUi((prev) => ({ ...prev, transfer: { ...prev.transfer, ...patch } }));
   }, []);
 
+  const updateSidebar = useCallback((patch: Partial<SidebarSettings>) => {
+    setUi((prev) => ({ ...prev, sidebar: { ...prev.sidebar, ...patch } }));
+  }, []);
+
   const save = useCallback(async () => {
     try {
       await setUiSettings(ui);
@@ -94,5 +105,12 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
     }
   }, [ui, notify]);
 
-  return { ui, update, updateTerminal, updateTransfer, save };
+  return { ui, update, updateTerminal, updateTransfer, updateSidebar, save };
+}
+
+/** Clamp the persisted sidebar width into the valid range (200–560 px). */
+export function clampSidebarWidth(w: number): number {
+  const n = Math.round(Number(w));
+  if (!Number.isFinite(n)) return 320;
+  return Math.min(Math.max(n, 200), 560);
 }

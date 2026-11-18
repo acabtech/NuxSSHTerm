@@ -140,6 +140,19 @@ export interface TerminalSettings {
   bellStyle: "none" | "visual" | "sound" | "both";
 }
 
+/** Connections sidebar layout preferences (mirrors the Rust `SidebarSettings`). */
+export interface SidebarSettings {
+  /** Expanded sidebar width in px (drag-resizable), clamped 200–560. */
+  width: number;
+  /**
+   * Collapse behavior: "hover" collapses after `collapseDelayMs` when the
+   * pointer leaves the rail; "never" keeps the sidebar pinned open.
+   */
+  collapseMode: "hover" | "never";
+  /** Hover-out collapse delay in ms (0 = collapse immediately). */
+  collapseDelayMs: number;
+}
+
 /** SFTP commander / file transfer preferences (mirrors the Rust `TransferSettings`). */
 export interface TransferSettings {
   confirmBeforeOverwrite: boolean;
@@ -163,6 +176,8 @@ export interface UiSettings {
   defaultPrivateKey: string;
   terminal: TerminalSettings;
   transfer: TransferSettings;
+  /** Connections sidebar (width / collapse behavior). */
+  sidebar: SidebarSettings;
 }
 
 export const DEFAULT_UI_SETTINGS: UiSettings = {
@@ -175,6 +190,7 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   defaultPrivateKey: "",
   terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true, cursorStyle: "block", bellStyle: "visual" },
   transfer: { confirmBeforeOverwrite: true, confirmBeforeDelete: true, defaultLocalPath: "" },
+  sidebar: { width: 320, collapseMode: "hover", collapseDelayMs: 0 },
 };
 
 /** A node in the tileable work-area layout tree. */

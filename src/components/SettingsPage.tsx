@@ -22,11 +22,12 @@ interface Props {
   onPatch: (patch: Partial<UiSettings>) => void;
   onPatchTerminal: (patch: Partial<UiSettings["terminal"]>) => void;
   onPatchTransfer: (patch: Partial<TransferSettings>) => void;
+  onPatchSidebar: (patch: Partial<UiSettings["sidebar"]>) => void;
   onSave: () => void;
   onBack: () => void;
 }
 
-export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, onSave, onBack }: Props) {
+export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, onPatchSidebar, onSave, onBack }: Props) {
   const [section, setSection] = useState<Section>("appearance");
   const [saved, setSaved] = useState(false);
 
@@ -119,6 +120,44 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
               />
               Show configuration panel under connections
             </label>
+            <h3>Sidebar</h3>
+            <label>
+              Expanded width ({ui.sidebar.width}px — also drag the sidebar edge to resize)
+              <input
+                type="range"
+                min={200}
+                max={560}
+                step={4}
+                value={ui.sidebar.width}
+                onChange={(e) => onPatchSidebar({ width: parseInt(e.target.value, 10) })}
+              />
+            </label>
+            <label>
+              Collapse behavior
+              <select
+                value={ui.sidebar.collapseMode}
+                onChange={(e) =>
+                  onPatchSidebar({ collapseMode: e.target.value as UiSettings["sidebar"]["collapseMode"] })
+                }
+              >
+                <option value="hover">Collapse when the pointer leaves</option>
+                <option value="never">Never collapse (pinned open)</option>
+              </select>
+            </label>
+            {ui.sidebar.collapseMode === "hover" && (
+              <label>
+                Collapse delay ({ui.sidebar.collapseDelayMs}ms)
+                <input
+                  type="range"
+                  min={0}
+                  max={2000}
+                  step={100}
+                  value={ui.sidebar.collapseDelayMs}
+                  onChange={(e) => onPatchSidebar({ collapseDelayMs: parseInt(e.target.value, 10) })}
+                />
+                <div className="note">0 collapses immediately on pointer leave; up to 2s grace.</div>
+              </label>
+            )}
           </div>
         )}
 

@@ -96,6 +96,30 @@ impl Default for TransferSettings {
     }
 }
 
+/// Connections sidebar layout preferences (v0.5.1): expanded width and
+/// collapse behavior.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SidebarSettings {
+    /// Expanded sidebar width in px (drag-resizable), clamped 200–560.
+    pub width: u32,
+    /// "hover" collapses after `collapse_delay_ms` on pointer-leave; "never"
+    /// pins the sidebar open.
+    pub collapse_mode: String,
+    /// Hover-out collapse delay in ms (0 = collapse immediately).
+    pub collapse_delay_ms: u32,
+}
+
+impl Default for SidebarSettings {
+    fn default() -> Self {
+        Self {
+            width: 320,
+            collapse_mode: "hover".to_string(),
+            collapse_delay_ms: 0,
+        }
+    }
+}
+
 /// The v0.5.0 modernized UI chrome settings (design-system tweaks + terminal).
 /// Everything here is non-secret and safe to store in plain `settings.json`.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -123,6 +147,13 @@ pub struct UiSettings {
     pub terminal: TerminalSettings,
     /// SFTP commander / file transfer preferences.
     pub transfer: TransferSettings,
+    /// Connections sidebar (width / collapse behavior).
+    #[serde(default = "default_sidebar")]
+    pub sidebar: SidebarSettings,
+}
+
+fn default_sidebar() -> SidebarSettings {
+    SidebarSettings::default()
 }
 
 impl Default for UiSettings {
@@ -137,6 +168,7 @@ impl Default for UiSettings {
             default_private_key: String::new(),
             terminal: TerminalSettings::default(),
             transfer: TransferSettings::default(),
+            sidebar: SidebarSettings::default(),
         }
     }
 }

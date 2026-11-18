@@ -82,7 +82,74 @@ export default function App() {
     [push],
   );
 
-  const { ui, update: patchUi, updateTerminal, updateTransfer, save: saveSettings } = useSettings(notify);
+  const {
+    ui,
+    update: patchUi,
+    updateTerminal,
+    updateTransfer,
+    updateSidebar,
+    save: saveSettings,
+  } = useSettings(notify);
+
+  // ---- Connections sidebar: settings-driven width + collapse (issues #10/#7) ----
+  const sidebar = ui.sidebar;
+  const collapseMode = sidebar.collapseMode === "never" ? "never" : "hover";
+  const [railHovered, setRailHovered] = useState(false);
+  const railElRef = useRef<HTMLDivElement | null>(null);
+  const railCollapseTimer = useRef<number | null>(null);
+  const [railResizing, setRailResizing] = useState(false);
+  const railDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  // Rail is expanded when hovered/focused (hover mode) or always pinned (never).
+  const railExpanded = collapseMode === "never" || railHovered || railResizing;
+
+  const clearRailCollapseTimer = () => {
+    if (railCollapseTimer.current !== null) {
+      window.clearTimeout(railCollapseTimer.current);
+      railCollapseTimer.current = null;
+    }
+  };
+
+  const onRailEnter = () => {
+    clearRailCollapseTimer();
+    setRailHovered(true);
+  };
+  const onRailLeave = () => {
+    if (collapseMode === "never" || railResizing) return;
+    clearRailCollapseTimer();
+    railCollapseTimer.current = window.setTimeout(() => {
+      setRailHovered(false);
+      railCollapseTimer.current = null;
+    }, Math.max(0, sidebar.collapseDelayMs));
+  };
+
+  // Keep hover state coherent if the user switches collapse mode live.
+  useEffect(() => {
+    if (collapseMode === "never") clearRailCollapseTimer();
+  }, [collapseMode]);
+
+  /** Drag-to-resize the expanded sidebar edge (persists width in UiSettings). */
+  const startRailResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    railDragRef.current = { startX: e.clientX, startWidth: sidebar.width };
+    setRailResizing(true);
+    document.body.classList.add("rail-resizing");
+    const onMove = (ev: MouseEvent) => {
+      const d = railDragRef.current;
+      if (!d) return;
+      const w = Math.min(Math.max(Math.round(d.startWidth + (ev.clientX - d.startX)), 200), 560);
+      updateSidebar({ width: w });
+    };
+    const onUp = () => {
+      railDragRef.current = null;
+      setRailResizing(false);
+      document.body.classList.remove("rail-resizing");
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+  // ---------------------------------------------------------------------------
 
   const vault = useVault(notify);
   const {
@@ -623,12 +690,19 @@ export default function App() {
           onPatch={patchUi}
           onPatchTerminal={updateTerminal}
           onPatchTransfer={updateTransfer}
+          onPatchSidebar={updateSidebar}
           onSave={() => void saveSettings()}
           onBack={() => setPage("workspace")}
         />
       ) : (
         <div className="workspace">
-          <div className="rail">
+          <div
+            ref={railElRef}
+            className={`rail${railExpanded ? " expanded" : ""}${railResizing ? " resizing" : ""}`}
+            style={{ width: railExpanded ? sidebar.width : undefined, "--rail-expanded-width": `${sidebar.width}px` } as React.CSSProperties}
+            onMouseEnter={onRailEnter}
+            onMouseLeave={onRailLeave}
+          >
             <div className="rail-inner">
               <div className="rail-collapsed-icons">
                 <div className="rail-icon active" title="Connections">
@@ -688,6 +762,14 @@ export default function App() {
               </div>
             </div>
           </div>
+
+          {railExpanded && (
+            <div
+              className="rail-resize-handle"
+              title="Drag to resize sidebar"
+              onMouseDown={startRailResize}
+            />
+          )}
 
           <main className="work" aria-label="Terminal work area">
             <TabStrip

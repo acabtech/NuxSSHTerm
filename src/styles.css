@@ -143,9 +143,29 @@ button, input, select, textarea { font: inherit; color: inherit; }
   transition: width 0.18s ease;
   overflow: hidden;
 }
-.rail:hover,
-.rail:focus-within { width: 320px; }
-.rail-inner { display: flex; height: 100%; width: 320px; }
+/* Expanded width is driven from SidebarSettings via --rail-expanded-width. */
+.rail.expanded,
+.rail:focus-within { width: var(--rail-expanded-width, 320px); }
+.rail.resizing { transition: none; }
+.rail-inner {
+  display: flex;
+  height: 100%;
+  width: var(--rail-expanded-width, 320px);
+  min-width: 0;
+}
+/* Drag handle on the expanded sidebar's right edge (issue #10). */
+.rail-resize-handle {
+  width: 5px;
+  cursor: col-resize;
+  flex: 0 0 5px;
+  margin-left: -5px;
+  z-index: 5;
+  touch-action: none;
+}
+.rail-resize-handle:hover,
+.rail-resize-handle:active { background: var(--accent); }
+body.rail-resizing,
+body.rail-resizing * { cursor: col-resize !important; user-select: none !important; }
 .rail-collapsed-icons {
   width: 54px;
   flex: 0 0 54px;
@@ -178,8 +198,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
   transition: opacity 0.12s ease;
   overflow: hidden;
 }
-.rail:hover .rail-content,
+.rail.expanded .rail-content,
 .rail:focus-within .rail-content { opacity: 1; pointer-events: auto; }
+body.rail-resizing .rail { transition: none; }
+body.rail-resizing .rail-resize-handle { background: var(--accent); }
 .rail-head {
   display: flex;
   align-items: center;
