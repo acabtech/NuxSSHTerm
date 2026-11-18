@@ -74,12 +74,16 @@ export function useSessionTree(notify: (msg: string, kind?: "info" | "success" |
   }, []);
 
   const addSession = useCallback(
-    (asContainer: boolean) => {
+    (asContainer: boolean, defaults?: { forwardAgent?: boolean; privateKey?: string }) => {
       const parentPath = selectedPath && selected?.type === "Container" ? selectedPath : [];
       const node = emptyNode(
         asContainer ? "New folder" : "New session",
         asContainer ? "Container" : "Connection",
       );
+      if (!asContainer && defaults) {
+        node.forward_agent = defaults.forwardAgent === true;
+        if (defaults.privateKey) node.private_key = defaults.privateKey;
+      }
       setTree((t) => insertAt(t, parentPath, node));
       notify(asContainer ? "Folder added" : "Session added");
     },

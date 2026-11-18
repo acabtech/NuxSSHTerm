@@ -36,10 +36,6 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
     window.setTimeout(() => setSaved(false), 1600);
   };
 
-  // Simulated (per mockup) — real backend wiring lands with v0.6.
-  const [agent] = useState(true);
-  const [keyPath] = useState("~/.ssh/id_ed25519");
-
   return (
     <div className="settings-page">
       <div className="set-side">
@@ -183,7 +179,22 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
           <div className="card">
             <h3>Connections & Security</h3>
             <label className="row">
-              <input type="checkbox" checked={agent} readOnly /> Use system SSH agent
+              <input
+                type="checkbox"
+                checked={ui.defaultForwardAgent}
+                onChange={(e) => onPatch({ defaultForwardAgent: e.target.checked })}
+              />{" "}
+              Forward SSH agent by default for new connections
+            </label>
+            <label>
+              Default private key path (new connections)
+              <input
+                type="text"
+                value={ui.defaultPrivateKey}
+                onChange={(e) => onPatch({ defaultPrivateKey: e.target.value })}
+                placeholder="e.g. ~/.ssh/id_ed25519"
+                spellCheck={false}
+              />
             </label>
             <label>
               Vault auto-lock
@@ -198,14 +209,11 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
                 <option value={60}>After 60 minutes of inactivity</option>
               </select>
             </label>
-            <label>
-              Default key path
-              <input value={keyPath} readOnly />
-            </label>
             <div className="note">
-              Vault auto-lock is applied while the vault is unlocked; any mouse/keyboard/touch activity
-              resets the timer. Agent and default-key options are still simulated — manage the real agent via
-              Tools → SSH Key Manager and the vault via Tools → Master Password…
+              Forwarding and key defaults are applied when creating new connection entries; edit existing sessions
+              in their Configuration panel. Vault auto-lock is applied while the vault is unlocked and any
+              mouse/keyboard/touch activity resets the timer. Manage the running agent via Tools → SSH Key Manager
+              and the vault via Tools → Master Password…
             </div>
           </div>
         )}

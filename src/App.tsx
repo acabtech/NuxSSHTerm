@@ -446,7 +446,11 @@ export default function App() {
           openLocalShell();
           setPage("workspace");
         },
-        onNewSession: () => addSession(false),
+        onNewSession: () =>
+          addSession(false, {
+            forwardAgent: ui.defaultForwardAgent,
+            privateKey: ui.defaultPrivateKey,
+          }),
         onNewFolder: () => addSession(true),
         onImport: () => setModal({ kind: "import-sessions" }),
         onExport: () =>
@@ -744,7 +748,16 @@ export default function App() {
           )}
           {ctxNode.type === "Container" && (
             <>
-              <div className="menu-item" onClick={() => { setCtx(null); addSession(false); }}>
+              <div
+                className="menu-item"
+                onClick={() => {
+                  setCtx(null);
+                  addSession(false, {
+                    forwardAgent: ui.defaultForwardAgent,
+                    privateKey: ui.defaultPrivateKey,
+                  });
+                }}
+              >
                 <span>New session here</span>
               </div>
               <div className="menu-item" onClick={() => { setCtx(null); addSession(true); }}>
@@ -765,7 +778,12 @@ export default function App() {
             onClick={() => {
               const p = ctx.path.slice(0, -1);
               setCtx(null);
-              setTree((t) => insertAt(t, p, emptyNode("New session", "Connection")));
+              setTree((t) => {
+                const node = emptyNode("New session", "Connection");
+                node.forward_agent = ui.defaultForwardAgent;
+                node.private_key = ui.defaultPrivateKey;
+                return insertAt(t, p, node);
+              });
             }}
           >
             <span>Add sibling session</span>

@@ -44,6 +44,11 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
           Number.isFinite(lockMins) && lockMins >= 0
             ? Math.round(lockMins)
             : DEFAULT_UI_SETTINGS.vaultAutoLockMinutes;
+        merged.defaultForwardAgent = Boolean((merged as UiSettings).defaultForwardAgent);
+        merged.defaultPrivateKey =
+          typeof (merged as UiSettings).defaultPrivateKey === "string"
+            ? (merged as UiSettings).defaultPrivateKey
+            : DEFAULT_UI_SETTINGS.defaultPrivateKey;
         setUi(merged);
       } catch {
         // not running under Tauri (vite dev alone) — keep defaults

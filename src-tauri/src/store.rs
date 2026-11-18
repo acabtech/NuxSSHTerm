@@ -105,6 +105,12 @@ pub struct UiSettings {
     /// while unlocked. 0 disables auto-lock.
     #[serde(default = "default_vault_auto_lock_minutes")]
     pub vault_auto_lock_minutes: u32,
+    /// Default for new connections: forward the local ssh-agent to the remote host.
+    #[serde(default)]
+    pub default_forward_agent: bool,
+    /// Default for new connections: private key path (e.g. ~/.ssh/id_ed25519).
+    #[serde(default)]
+    pub default_private_key: String,
     /// Terminal rendering preferences.
     pub terminal: TerminalSettings,
     /// SFTP commander / file transfer preferences.
@@ -119,6 +125,8 @@ impl Default for UiSettings {
             show_config: true,
             accent_color: "#3b82f6".to_string(),
             vault_auto_lock_minutes: default_vault_auto_lock_minutes(),
+            default_forward_agent: false,
+            default_private_key: String::new(),
             terminal: TerminalSettings::default(),
             transfer: TransferSettings::default(),
         }

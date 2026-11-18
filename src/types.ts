@@ -155,6 +155,10 @@ export interface UiSettings {
   accentColor: string;
   /** Auto-lock the encrypted vault after N minutes of inactivity while unlocked. 0 disables. */
   vaultAutoLockMinutes: number;
+  /** Default for new connections: forward the local ssh-agent to the remote host. */
+  defaultForwardAgent: boolean;
+  /** Default for new connections: private key path (e.g. ~/.ssh/id_ed25519). */
+  defaultPrivateKey: string;
   terminal: TerminalSettings;
   transfer: TransferSettings;
 }
@@ -165,6 +169,8 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   showConfig: true,
   accentColor: "#3b82f6",
   vaultAutoLockMinutes: 0,
+  defaultForwardAgent: false,
+  defaultPrivateKey: "",
   terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true, cursorStyle: "block" },
   transfer: { confirmBeforeOverwrite: true, confirmBeforeDelete: true, defaultLocalPath: "" },
 };
