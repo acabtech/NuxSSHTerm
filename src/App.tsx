@@ -709,9 +709,13 @@ export default function App() {
                   <Icon name="server" size={17} />
                 </div>
                 {ui.showConfig && (
-                  <div className="rail-icon" title="Configuration">
+                  <button
+                    className="rail-icon"
+                    title="Open configuration (Ctrl + ,)"
+                    onClick={() => setPage("settings")}
+                  >
                     <Icon name="settings" size={17} />
-                  </div>
+                  </button>
                 )}
               </div>
               <div className="rail-content">

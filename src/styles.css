@@ -184,7 +184,12 @@ body.rail-resizing * { cursor: col-resize !important; user-select: none !importa
   justify-content: center;
   color: var(--muted);
   border-radius: var(--radius);
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
 }
+.rail-icon:hover { color: var(--text); background: var(--surface-raised); }
 .rail-icon.active { color: var(--text); background: var(--surface-raised); }
 .rail-content {
   flex: 1;
