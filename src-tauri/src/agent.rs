@@ -102,6 +102,31 @@ pub fn configured_socket() -> Option<String> {
     persisted_socket_file()
 }
 
+fn socket_alive(sock: &str) -> bool {
+    let (out, err, code) = run_ssh_add(vec!["-l".to_string()], sock.to_string());
+    let (alive, _) = parse_add_l(&out, &err, code);
+    alive
+}
+
+/// Socket suitable for exporting to SSH/SFTP sessions.
+///
+/// Validates liveness before returning it. For a dead persisted (app-managed)
+/// socket the stored record/file is cleared; for a dead externally inherited
+/// `SSH_AUTH_SOCK` the socket is simply not exported.
+pub fn session_socket() -> Option<String> {
+    if let Some(sock) = env_socket() {
+        return if socket_alive(&sock) { Some(sock) } else { None };
+    }
+    if let Some(sock) = persisted_socket_file() {
+        if socket_alive(&sock) {
+            return Some(sock);
+        }
+        let _ = std::fs::remove_file(&sock);
+        crate::store::set_agent_record("", "");
+    }
+    None
+}
+
 /* ------------------------------ commands ------------------------------ */
 
 /// Snapshot of the agent situation + its identities (`ssh-add -l`).
