@@ -29,6 +29,10 @@ fn default_cursor_style() -> String {
     "block".to_string()
 }
 
+fn default_bell_style() -> String {
+    "visual".to_string()
+}
+
 /// Terminal rendering preferences (xterm.js), persisted so they survive restarts.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase", default)]
@@ -42,6 +46,9 @@ pub struct TerminalSettings {
     /// xterm.js `cursorStyle` ("block" | "underline" | "bar").
     #[serde(default = "default_cursor_style")]
     pub cursor_style: String,
+    /// Bell behavior on terminal BEL: "none" | "visual" | "sound" | "both".
+    #[serde(default = "default_bell_style")]
+    pub bell_style: String,
 }
 
 impl Default for TerminalSettings {
@@ -51,6 +58,7 @@ impl Default for TerminalSettings {
             scrollback: 10000,
             cursor_blink: true,
             cursor_style: default_cursor_style(),
+            bell_style: default_bell_style(),
         }
     }
 }

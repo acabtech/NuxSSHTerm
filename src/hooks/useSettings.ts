@@ -9,9 +9,14 @@ import {
 } from "../types";
 
 const CURSOR_STYLES: readonly CursorStyle[] = ["block", "underline", "bar"];
+const BELL_STYLES: readonly UiSettings["terminal"]["bellStyle"][] = ["none", "visual", "sound", "both"];
 
 function normalizeCursorStyle(v: unknown): CursorStyle {
   return CURSOR_STYLES.includes(v as CursorStyle) ? (v as CursorStyle) : DEFAULT_UI_SETTINGS.terminal.cursorStyle;
+}
+
+function normalizeBellStyle(v: unknown): UiSettings["terminal"]["bellStyle"] {
+  return BELL_STYLES.includes(v as UiSettings["terminal"]["bellStyle"]) ? (v as UiSettings["terminal"]["bellStyle"]) : DEFAULT_UI_SETTINGS.terminal.bellStyle;
 }
 
 /**
@@ -39,6 +44,7 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
         };
         merged.accentColor = normalizeHexColor(merged.accentColor);
         merged.terminal.cursorStyle = normalizeCursorStyle(merged.terminal.cursorStyle);
+        merged.terminal.bellStyle = normalizeBellStyle((merged.terminal as UiSettings["terminal"]).bellStyle);
         const lockMins = Number((merged as UiSettings).vaultAutoLockMinutes);
         merged.vaultAutoLockMinutes =
           Number.isFinite(lockMins) && lockMins >= 0

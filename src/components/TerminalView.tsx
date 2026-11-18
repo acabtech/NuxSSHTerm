@@ -153,6 +153,55 @@ export function TerminalView({ tab, active, term: termSettings }: { tab: Tab; ac
     }
   }, [termSettings.fontSize, termSettings.cursorBlink, termSettings.cursorStyle, termSettings.scrollback, tab.id]);
 
+  // terminal bell (visual + optional sound)
+  useEffect(() => {
+    const t = termRef.current;
+    const host = hostRef.current;
+    if (!t || !host) return;
+    const bell = termSettings.bellStyle;
+    if (bell === "none") return;
+
+    const playBeep = () => {
+      try {
+        const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!Ctx) return;
+        const ctx = new Ctx();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = 880;
+        gain.gain.value = 0.08;
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.12);
+        osc.onended = () => {
+          void ctx.close().catch(() => {});
+        };
+      } catch {
+        // ignore audio errors
+      }
+    };
+
+    const showVisual = () => {
+      host.classList.remove("term-bell-flash");
+      // force reflow to restart animation
+      void host.offsetWidth;
+      host.classList.add("term-bell-flash");
+      window.setTimeout(() => host.classList.remove("term-bell-flash"), 220);
+    };
+
+    const sub = t.onBell(() => {
+      if (bell === "visual" || bell === "both") showVisual();
+      if (bell === "sound" || bell === "both") playBeep();
+    });
+
+    return () => {
+      sub.dispose();
+      host.classList.remove("term-bell-flash");
+    };
+  }, [termSettings.bellStyle, tab.id]);
+
   // refit + focus when this tab becomes visible
   useEffect(() => {
     if (!active || !termRef.current || !fitRef.current) return;

@@ -159,6 +159,20 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
               </select>
             </label>
             <label>
+              Bell notifications
+              <select
+                value={ui.terminal.bellStyle}
+                onChange={(e) =>
+                  onPatchTerminal({ bellStyle: e.target.value as UiSettings["terminal"]["bellStyle"] })
+                }
+              >
+                <option value="none">None</option>
+                <option value="visual">Visual flash</option>
+                <option value="sound">Sound</option>
+                <option value="both">Visual + sound</option>
+              </select>
+            </label>
+            <label>
               Scrollback lines
               <input
                 type="number"
@@ -171,7 +185,7 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
                 }
               />
             </label>
-            <div className="note">Terminal options apply to newly opened tabs.</div>
+            <div className="note">Terminal options apply to newly opened tabs (bell applies to new tabs).</div>
           </div>
         )}
 

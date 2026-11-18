@@ -136,6 +136,8 @@ export interface TerminalSettings {
   scrollback: number;
   cursorBlink: boolean;
   cursorStyle: CursorStyle;
+  /** Bell/notification behavior on terminal BEL (xterm.onBell). */
+  bellStyle: "none" | "visual" | "sound" | "both";
 }
 
 /** SFTP commander / file transfer preferences (mirrors the Rust `TransferSettings`). */
@@ -171,7 +173,7 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   vaultAutoLockMinutes: 0,
   defaultForwardAgent: false,
   defaultPrivateKey: "",
-  terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true, cursorStyle: "block" },
+  terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true, cursorStyle: "block", bellStyle: "visual" },
   transfer: { confirmBeforeOverwrite: true, confirmBeforeDelete: true, defaultLocalPath: "" },
 };
 
