@@ -1,6 +1,7 @@
 //! NuxSSHTerm — Tauri backend.
 
 mod agent;
+mod cli;
 mod importcmd;
 mod kdbx;
 mod local_fs;
@@ -73,6 +74,21 @@ fn export_connections_file(path: String, tree: Vec<Node>) -> Result<(), String> 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Headless CLI mode (issues #27/#26): recognized subcommands run
+    // non-interactively and exit; anything else starts the GUI as before.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let exit_code = match cli::parse(&args) {
+        cli::ParseResult::Cli(inv) => Some(cli::execute(&inv)),
+        cli::ParseResult::UsageError { message, json } => {
+            cli::print_error(json, &message);
+            Some(cli::EXIT_USAGE)
+        }
+        cli::ParseResult::Gui => None,
+    };
+    if let Some(code) = exit_code {
+        std::process::exit(code);
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

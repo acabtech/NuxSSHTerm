@@ -109,6 +109,7 @@ Managed backend state includes PTY sessions, vault state, SFTP sessions, and age
 | [`agent.rs`](../src-tauri/src/agent.rs) | SSH agent discovery/adoption/spawn, key operations, socket export support |
 | [`importcmd.rs`](../src-tauri/src/importcmd.rs), [`putty.rs`](../src-tauri/src/putty.rs), [`kdbx.rs`](../src-tauri/src/kdbx.rs), [`wsst_crypto.rs`](../src-tauri/src/wsst_crypto.rs) | Import detection/parsing and conversion support for WinSSHTerm/PuTTY/KiTTY/KeePass-related inputs |
 | [`log.rs`](../src-tauri/src/log.rs) | Lightweight backend logging |
+| [`cli.rs`](../src-tauri/src/cli.rs) | Headless CLI (`list`/`status`/`paths`/`import`/`export`): argument dispatch in `run()` before the GUI starts, `--json` output, stable exit codes (0/1/2), stdout=data / stderr=diagnostics; reuses store/model/xml/importcmd without Tauri state |
 
 ## Data model and persistence
 

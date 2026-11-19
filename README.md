@@ -99,6 +99,37 @@ Build artifacts are produced under `src-tauri/target/release/bundle/` (exact bun
 - **File → Export connections…** writes a WinSSHTerm-format `connections.xml`.
 - Passwords are not written to connection XML exports; they are stored in the encrypted vault when available.
 
+### Command-line interface (CLI)
+
+The `nuxsshterm` binary doubles as a headless CLI for scriptable/LLM-driven
+operations. Without a recognized subcommand the GUI starts, as before.
+
+```bash
+nuxsshterm list                                  # session tree flattened to stable tree paths
+nuxsshterm list --json                           # machine-readable output
+nuxsshterm status                                # store presence, session counts, vault state
+nuxsshterm paths                                 # configuration/data file paths
+nuxsshterm import connections.xml                # preview a sessions file (no changes)
+nuxsshterm import connections.xml --yes          # commit: replaces the stored session tree
+nuxsshterm export out.xml                        # export WinSSHTerm XML (passwords stripped)
+nuxsshterm export out.xml --force                # overwrite an existing target
+```
+
+Conventions (applies as the surface grows):
+
+- Data goes to **stdout**; diagnostics and warnings go to **stderr**.
+- `--json` yields stable machine-readable output; exit codes are `0` success,
+  `1` runtime error, `2` usage error.
+- Non-interactive: no prompts — missing prerequisites fail fast with a clear
+  error.
+- Secrets are never printed: the vault stays locked headless, exports always
+  strip passwords, and imports never store passwords (use the GUI import
+  wizard for vault-backed imports).
+- Sessions are addressed by their `/`-joined tree path (same key scheme the
+  vault and settings use).
+
+Vault unlock, terminal sessions, SFTP, and the agent manager require the GUI.
+
 ### Vault
 
 - On first use you can create a master password; existing vaults prompt for unlock.
