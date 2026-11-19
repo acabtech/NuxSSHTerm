@@ -108,26 +108,32 @@ pub fn pty_open(
     // and whether the configured credential is pinned with `IdentitiesOnly`.
     let mut auth_args: Vec<String> = Vec::new();
     let mut auth_env: Vec<(String, String)> = Vec::new();
+    let mut effective_spec = spec.clone();
     if !local_shell {
         let auth = crate::store::get_ui_settings().auth;
-        let has_credential =
-            !spec.private_key.is_empty() || password.as_deref().map_or(false, |p| !p.is_empty());
-        let (export_agent, identities_only) = auth.session_policy(has_credential);
-        if !export_agent && identities_only && spec.forward_agent {
+        let has_credential = !spec.private_key.is_empty()
+            || password.as_deref().map_or(false, |p| !p.is_empty());
+        let (policy_export_agent, identities_only) = auth.session_policy(has_credential);
+        let agent_socket = if policy_export_agent {
+            crate::agent::session_socket()
+        } else {
+            None
+        };
+        let can_export_agent = agent_socket.is_some();
+        if spec.forward_agent && !can_export_agent {
             crate::log::error(
                 "pty_open",
-                "agent forwarding requested but agent identity export is disabled by the auth policy; forwarding will offer no keys",
+                "agent forwarding requested but no usable agent is available for export; forwarding will offer no keys",
             );
         }
         if identities_only {
             auth_args.push("-o".into());
             auth_args.push("IdentitiesOnly=yes".into());
         }
-        if export_agent
-            && let Some(sock) = crate::agent::configured_socket()
-        {
+        if let Some(sock) = agent_socket {
             auth_env.push(("SSH_AUTH_SOCK".to_string(), sock));
         }
+        effective_spec.forward_agent = spec.forward_agent && can_export_agent;
     }
     let mut cmd = if local_shell {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".into());
@@ -136,7 +142,7 @@ pub fn pty_open(
         let mut c = CommandBuilder::new("ssh");
         // ssh_args() ends with the host target, so the auth policy options
         // (IdentitiesOnly pinning) must go before it.
-        let mut argv = spec.ssh_args();
+        let mut argv = effective_spec.ssh_args();
         let host = argv.pop().unwrap_or_default();
         argv.extend(auth_args);
         argv.push(host);
