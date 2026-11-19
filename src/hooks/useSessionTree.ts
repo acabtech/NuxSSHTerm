@@ -110,6 +110,14 @@ export function useSessionTree(notify: (msg: string, kind?: "info" | "success" |
     notify(`Deleted "${node.name}"`);
   }, [selectedPath, tree, notify]);
 
+  const toggleFavorite = useCallback((path: number[]) => {
+    setTree((t) => {
+      const n = getAt(t, path);
+      if (n?.type === "Connection") return updateAt(t, path, { favorite: !n.favorite });
+      return t;
+    });
+  }, []);
+
   const expandAll = useCallback(
     (expanded: boolean) =>
       setTree((t) => mapAll(t, (n) => (n.type === "Container" ? { ...n, expanded } : n))),
@@ -160,6 +168,7 @@ export function useSessionTree(notify: (msg: string, kind?: "info" | "success" |
     duplicateSelected,
     deleteSelected,
     expandAll,
+    toggleFavorite,
     runImport,
     runExport,
   };

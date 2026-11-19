@@ -301,6 +301,9 @@ pub struct Settings {
     /// vault uses (ancestor names joined by "/").
     #[serde(default)]
     pub forward_agent: HashMap<String, bool>,
+    /// UI-local per-session favorite flags (issue #24), same path-key scheme.
+    #[serde(default)]
+    pub favorites: HashMap<String, bool>,
     /// Modernized UI chrome preferences (v0.5.0).
     #[serde(default)]
     pub ui: UiSettings,
@@ -368,12 +371,22 @@ fn path_key_of(path: &[String]) -> String {
 
 /// Collect per-connection ForwardAgent flags into a settings map.
 fn collect_forward_agent(nodes: &[Node]) -> HashMap<String, bool> {
+    collect_flag(nodes, |n| n.forward_agent)
+}
+
+/// Collect per-connection favorite flags into a settings map (issue #24).
+fn collect_favorites(nodes: &[Node]) -> HashMap<String, bool> {
+    collect_flag(nodes, |n| n.favorite)
+}
+
+/// Collect per-connection boolean flags matching `pred` into a path-keyed map.
+fn collect_flag(nodes: &[Node], pred: impl Fn(&Node) -> bool) -> HashMap<String, bool> {
     let mut out: HashMap<String, bool> = HashMap::new();
     let mut flat: Vec<(Vec<String>, Node)> = Vec::new();
     let empty: Vec<String> = Vec::new();
     crate::model::flatten(nodes, &empty, &mut flat);
     for (path, n) in flat {
-        if n.node_type == KIND_CONNECTION && n.forward_agent {
+        if n.node_type == KIND_CONNECTION && pred(&n) {
             out.insert(path_key_of(&path), true);
         }
     }
@@ -383,6 +396,12 @@ fn collect_forward_agent(nodes: &[Node]) -> HashMap<String, bool> {
 /// Apply settings-stored ForwardAgent flags onto a freshly loaded tree.
 fn apply_forward_agent(nodes: &mut [Node]) {
     let flags = load_settings().forward_agent;
+    apply_forward_agent_flags(nodes, &flags, &mut Vec::new());
+}
+
+/// Apply settings-stored favorite flags onto a freshly loaded tree (issue #24).
+fn apply_favorites(nodes: &mut [Node]) {
+    let flags = load_settings().favorites;
     apply_forward_agent_flags(nodes, &flags, &mut Vec::new());
 }
 
@@ -414,15 +433,18 @@ pub fn load_tree() -> Vec<Node> {
         Vec::new()
     };
     apply_forward_agent(&mut nodes);
+    apply_favorites(&mut nodes);
     nodes
 }
 
 pub fn save_tree(nodes: &[Node]) -> Result<(), String> {
     // Never persist plaintext passwords — strip them before writing to disk.
     std::fs::write(connections_path(), export_xml(nodes)).map_err(|e| e.to_string())?;
-    // Persist UI-local ForwardAgent flags in settings.json (not the WinSSHTerm XML).
+    // Persist UI-local ForwardAgent/favorite flags in settings.json
+    // (not the WinSSHTerm XML).
     let mut s = load_settings();
     s.forward_agent = collect_forward_agent(nodes);
+    s.favorites = collect_favorites(nodes);
     let _ = save_settings(&s);
     Ok(())
 }

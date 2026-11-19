@@ -35,6 +35,8 @@ export interface SessionNode {
   custom_type: string;
   /** Forward the ssh-agent to the remote host (`-o ForwardAgent=yes`). */
   forward_agent: boolean;
+  /** Favorite/pinned connection (issue #24; persisted in settings.json). */
+  favorite: boolean;
 }
 
 export interface LaunchSpec {
@@ -97,6 +99,7 @@ export function emptyNode(name: string, type: NodeType): SessionNode {
     custom_id: "",
     custom_type: "",
     forward_agent: false,
+    favorite: false,
   };
 }
 

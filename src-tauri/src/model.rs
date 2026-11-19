@@ -75,6 +75,10 @@ pub struct Node {
     /// UI-local (Phase 4): persisted in settings.json, not in WinSSHTerm XML.
     #[serde(default)]
     pub forward_agent: bool,
+    /// Favorite/pinned connection (issue #24). UI-local: persisted in
+    /// settings.json, not in WinSSHTerm XML.
+    #[serde(default)]
+    pub favorite: bool,
 }
 
 impl Node {

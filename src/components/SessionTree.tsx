@@ -30,6 +30,8 @@ export interface TreeCallbacks {
   onToggle: (path: number[]) => void;
   onOpen: (path: number[]) => void;
   onContextMenu: (e: React.MouseEvent, path: number[]) => void;
+  /** Toggle the favorite/pinned flag of a connection (issue #24). */
+  onToggleFavorite: (path: number[]) => void;
 }
 
 function Row({
@@ -71,6 +73,20 @@ function Row({
         </span>
         <span className="ico">{isContainer ? <FolderIcon open={node.expanded} /> : <HostIcon resolved={resolved} />}</span>
         <span className={`label${resolved ? "" : " unresolved"}`}>{node.name}</span>
+        {!isContainer && (
+          <button
+            className={`fav-btn${node.favorite ? " on" : ""}`}
+            title={node.favorite ? "Unfavorite" : "Mark as favorite"}
+            aria-label={node.favorite ? "Unfavorite" : "Mark as favorite"}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              cb.onToggleFavorite(path);
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {node.favorite ? "★" : "☆"}
+          </button>
+        )}
       </div>
       {isContainer &&
         node.expanded &&

@@ -251,6 +251,23 @@ body.rail-resizing .rail-resize-handle { background: var(--accent); }
 .ico { display: inline-flex; flex: 0 0 auto; }
 .label { overflow: hidden; text-overflow: ellipsis; }
 .label.unresolved { color: var(--muted); font-style: italic; }
+.fav-btn {
+  margin-left: auto;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0;
+}
+.tree-row:hover .fav-btn { opacity: 0.7; }
+.fav-btn.on { opacity: 1; color: #eab308; }
+.fav-btn:hover { opacity: 1; }
 .prop-empty { padding: 8px 4px; color: var(--muted); font-size: 12px; }
 
 /* ------------------------------ config block ----------------------------- */

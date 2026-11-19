@@ -180,6 +180,7 @@ export default function App() {
     duplicateSelected,
     deleteSelected,
     expandAll,
+    toggleFavorite,
     runExport,
   } = treeApi;
 
@@ -697,6 +698,7 @@ export default function App() {
   const treeCb: TreeCallbacks = {
     onSelect: (path) => setSelectedPath(path),
     onToggle: toggleNode,
+    onToggleFavorite: toggleFavorite,
     onOpen: (path) => {
       const n = getAt(tree, path);
       if (n) openSessionChecked(n);
@@ -890,6 +892,9 @@ export default function App() {
               <div className="menu-item" onClick={() => { setCtx(null); openCommanderChecked(ctxNode); }}>
                 <span>Copy Files</span>
                 <span className="hint">SFTP</span>
+              </div>
+              <div className="menu-item" onClick={() => { setCtx(null); toggleFavorite(ctx.path); }}>
+                <span>{ctxNode.favorite ? "Remove favorite" : "Add to favorites"}</span>
               </div>
               <div className="menu-sep" />
             </>
