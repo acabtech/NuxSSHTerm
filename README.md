@@ -1,120 +1,154 @@
 # NuxSSHTerm
 
-A native, tabbed SSH solution for Linux — a faithful reimplementation of
-[WinSSHTerm](https://github.com/SmartBear/WinSSHTerm), built to replace the
-Windows SSH workflow entirely on **Omarchy Quattro**. No Wine, no Windows
-emulation: it uses the system OpenSSH client over a PTY.
+NuxSSHTerm is a native Linux SSH workspace inspired by [WinSSHTerm](https://github.com/WinSSHTerm/WinSSHTerm). It provides a tabbed terminal and file-transfer environment built with Tauri, React, and the system OpenSSH toolchain—no Wine, no Windows emulation.
 
-> WinSSHTerm on Windows is really PuTTY (terminal) + WinSCP (SFTP) + Pageant (keys)
-> + KeePass (vault) glued together. NuxSSHTerm rebuilds that same idea natively on
-> Linux.
+## Highlights
 
-## Status
-
-**v0.4 — Usable state **
-
-## What's here (v0.4)
-
-- **Tabbed terminal workspace** — multiple SSH sessions in tabs, with the
-  WinSSHTerm-style window chrome (menu bar, quick strip, status bar).
-- **Managed session tree** — a Connections panel with folders, add / duplicate /
-  delete / reorder, expand & collapse, and a right-click context menu.
-- **PTY + SSH sessions** — sessions launch through the system `ssh` over a
-  `portable-pty` PTY; xterm.js renders the terminal. X11 forwarding and proxy
-  settings map onto OpenSSH options.
-- **Configuration panel** — edit connection attributes (host, port, user, key,
-  X11, proxy, login commands) per host.
-- **Encrypted password vault** — Argon2id + AES-256-GCM `vault.bin` under
-  `~/.config/nuxsshterm/`; first-run wizard, unlock on start, lock/reset;
-  passwords are never written to `connections.xml`.
-- **Settings import wizard** — File → Import… scans PuTTY `.reg` (UTF-16LE),
-  KiTTY `.txt`, WinSSHTerm `connections.xml`/`.settings`, and KeePass `.kdbx`;
-  previews sessions with per-item mapping, warns on Windows key paths, converts
-  `.ppk` keys via `puttygen` (originals untouched), then merges into the tree.
-- **Settings export** — write the tree back out in WinSSHTerm
-  `connections.xml` format (schema verified against `Migrate2WinSSHTerm`
-  v0.23), so an existing Windows setup can be carried across.
-- **SFTP commander (Copy Files)** — right-click a session → **Copy Files** (or
-  Navigate → Copy Files) opens a WinSCP-style dual-pane commander: local pane +
-  remote pane, path bars, and the WinSSHTerm shortcut set
-  (F5 copy · F6 move · F7 mkdir · F8 delete · F9 properties · Ctrl+U swap
-  panes · Ctrl+R refresh · Ctrl+T terminal to host). One persistent `sftp`
-  child per tab (sequential scripted transfers); vault passwords are injected
-  via an `SSH_ASKPASS` helper.
-- **Automatic password login** — saved vault passwords are fed to both
-  terminal **and** SFTP sessions through per-session `SSH_ASKPASS` helpers
-  (`pty-askpass.sh` / `sftp-askpass.sh`), so no manual password prompt appears
-  after opening a connection.
-- **SSH key manager (Pageant equivalent)** — Tools → SSH key manager… adopts
-  an existing `SSH_AUTH_SOCK` or spawns a dedicated `ssh-agent` (record kept
-  in `settings.json`), lists/adds/removes keys via `ssh-add`, handles
-  passphrase-protected keys through an askpass helper, and exports the socket
-  to every terminal/SFTP child session. A per-session **Forward Agent**
-  checkbox maps to `-o ForwardAgent=yes`.
-- **Local persistence** — session tree stored under
-  `~/.config/nuxsshterm/` in the native WinSSHTerm XML format; UI-local
-  settings (agent record, ForwardAgent flags) in `settings.json`.
+- **Modern workspace UI** — dark-themed shell with menu bar, status bar, collapsible connections rail, and a dedicated Settings page.
+- **Tileable tabs and panes** — open multiple terminals/commanders, drag tabs between panes, split the work area, and resize panes.
+- **SSH sessions over a real PTY** — launches the system `ssh` client through `portable-pty`; terminal rendering is handled by xterm.js.
+- **Session management** — folder-based connection tree with add/duplicate/delete, expand/collapse, and per-connection configuration.
+- **WinSSHTerm-compatible storage/import/export** — reads and writes the WinSSHTerm `connections.xml` session format; imports PuTTY `.reg`, KiTTY `.txt`, WinSSHTerm XML/settings, and (best effort) KeePass `.kdbx`.
+- **Encrypted password vault** — Argon2id + AES-256-GCM vault stored locally; passwords are kept out of exported/session XML.
+- **SSH key manager** — adopts an existing `SSH_AUTH_SOCK` or manages a dedicated `ssh-agent`, with add/remove/list operations and optional per-session agent forwarding.
+- **SFTP commander** — dual-pane local/remote file browser backed by the system `sftp` client for common transfer and file operations.
+- **Local shell tabs** — open a shell in the workspace alongside remote sessions.
 
 ## Screenshots
 
-Development screenshots are in [`docs/screenshots/`](docs/screenshots/):
+Current screenshots in [`docs/screenshots/`](docs/screenshots/) are from earlier UI iterations and may not fully reflect the latest workspace layout:
 
-- `v0.1-shell.png` — the shell UI
-- `v0.1-config-panel.png` — the connection configuration panel
-- `v0.1-ssh-session.png` — an active SSH session
+- [`docs/screenshots/v0.1-shell.png`](docs/screenshots/v0.1-shell.png)
+- [`docs/screenshots/v0.1-config-panel.png`](docs/screenshots/v0.1-config-panel.png)
+- [`docs/screenshots/v0.1-ssh-session.png`](docs/screenshots/v0.1-ssh-session.png)
 
 ## Requirements
 
-- Linux (targeted for Omarchy; also builds `.deb` for
-  Debian/Ubuntu and .rpm for RedHat)
-- Node.js 18+ and npm
-- Rust (stable) and Cargo
-- The usual Tauri 2 Linux prerequisites (WebKitGTK, etc.):
-  `libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`
+### Runtime / platform
 
-## Building
+- Linux (primary target). Tauri bundling is configured for desktop targets; packaged outputs depend on your build environment.
+- System OpenSSH client tools used by features at runtime:
+  - `ssh` — terminal sessions
+  - `sftp` — SFTP commander
+  - `ssh-agent`, `ssh-add`, `ssh-keygen` — key manager / agent workflows
+- Optional tools for import workflows:
+  - `puttygen` — convert PuTTY `.ppk` keys during import
+  - `keepassxc-cli` — import from `.kdbx` files
+
+### Build prerequisites
+
+- Node.js 20+ recommended (CI uses Node 20) and npm
+- Rust stable toolchain and Cargo
+- Tauri 2 Linux system dependencies (WebKitGTK/GTK and related libraries). On Debian/Ubuntu, packages similar to:
 
 ```bash
-# Install JS deps
+sudo apt-get install -y \
+  libwebkit2gtk-4.1-dev \
+  build-essential \
+  curl \
+  wget \
+  file \
+  libxdo-dev \
+  libssl-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev
+```
+
+See the [Tauri prerequisites guide](https://v2.tauri.app/start/prerequisites/) for distro-specific details.
+
+## Getting started
+
+```bash
+# Install frontend dependencies
 npm install
 
-# Dev mode (Vite + Tauri, hot reload)
+# Run in development mode (Vite + Tauri)
 npm run tauri dev
 
-# Type-check + production build of the web frontend
+# Type-check and build the frontend
 npm run build
 
-# Build native bundles (deb + AppImage)
+# Build desktop bundles via Tauri
 npm run tauri build
 ```
 
-Bundles are written to `src-tauri/target/release/bundle/`:
-- `.deb` for Debian/Ubuntu
-- `.AppImage` for Arch / any distro
+Build artifacts are produced under `src-tauri/target/release/bundle/` (exact bundle formats depend on platform/tooling).
 
-## Configuration & data
+## Usage overview
 
-- `~/.config/nuxsshterm/` — session tree (WinSSHTerm `connections.xml`
-  format), the SFTP askpass helper, and the encrypted vault; **passwords are
-  never written to `connections.xml`** — they live in the vault while unlocked
-  and only in memory when locked.
+### Connections
 
-## Roadmap (upcoming)
+- Use the **Connections** rail to organize hosts in folders, select/edit connection details, and open sessions.
+- Double-click a connection or use menu/context actions to connect.
+- The configuration panel (toggleable) edits connection properties such as host, port, user, key path, proxy/X11/agent-forwarding options, and login/command metadata.
 
-- **SSH key manager (Pageant equivalent)** — detect/adopt `SSH_AUTH_SOCK` or spawn a
-  dedicated `ssh-agent`; list/add/remove keys; per-session ForwardAgent (v0.4.0).
-- **Quick-launch bar, tray icon, session reconnect, system theme**, and further
-  WinSSHTerm parity.
-- **In-process SSH (russh + russh-sftp)** — byte-level transfer progress,
-  resume/parallel transfers, password auth without the askpass helper.
+### Workspace
 
-## Project docs
+- Tabs can host **terminal** sessions, **local shells**, and **SFTP commander** views.
+- Drag tabs to rearrange or move them between panes; split the active pane from the View menu or pane controls.
+- Keyboard shortcuts include:
+  - `Ctrl+T` — new local shell
+  - `Ctrl+W` — close current tab
+  - `Ctrl+Shift+C` — copy terminal selection
+  - `Ctrl+V` — paste into terminal
+  - `Ctrl+,` — toggle Settings page
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — architecture, data model, and
-  WinSSHTerm schema notes.
-- [`docs/UI-SPEC.md`](docs/UI-SPEC.md) — UI parity spec derived from the
-  WinSSHTerm screenshot.
+### Import / export
+
+- **File → Import connections…** opens the import wizard (scan, preview, map, merge/replace, and optional key conversion).
+- **File → Export connections…** writes a WinSSHTerm-format `connections.xml`.
+- Passwords are not written to connection XML exports; they are stored in the encrypted vault when available.
+
+### Vault
+
+- On first use you can create a master password; existing vaults prompt for unlock.
+- Vault state is surfaced in the UI/status bar; lock/reset actions are available from menus/dialog flows.
+- Password edits for connections are persisted to the vault while unlocked (and handled according to current app state when locked).
+
+### SSH key manager
+
+- **Tools → SSH Key Manager** shows agent status and loaded identities.
+- The app can adopt an existing agent socket or manage a dedicated agent for the application.
+- Add/remove keys as needed; passphrase-protected keys are supported via askpass prompts.
+
+### SFTP commander
+
+- Open **Copy Files / SFTP Commander** for a configured connection.
+- Provides local and remote panes with navigation, transfer, rename, mkdir/delete, permissions/property actions (subject to backend/server capabilities), and shortcuts aligned with the commander UI.
+
+## Configuration and data
+
+NuxSSHTerm stores user data under `~/.config/nuxsshterm/` (platform config directory):
+
+| Path | Purpose |
+| --- | --- |
+| `connections.xml` | Session tree in WinSSHTerm XML format (passwords stripped) |
+| `settings.json` | Non-secret app/UI settings (UI preferences, agent record, per-session flags, etc.) |
+| `vault.bin` | Encrypted vault data (secrets such as stored passwords / import mappings) |
+| `log` | Backend log output (best effort) |
+| `imported/` (when used) | Converted/imported key material created by import flows |
+| `*-askpass.sh` / helper files (runtime-created) | Temporary/helper scripts used for askpass-driven auth flows |
+
+> **Note:** Exact auxiliary filenames may vary by feature/runtime; do not treat them as a stable public API.
+
+## Project structure
+
+- [`src/`](src/) — React + TypeScript frontend (UI, hooks, API bindings)
+- [`src-tauri/src/`](src-tauri/src/) — Rust backend (Tauri commands, PTY/SSH/SFTP/vault/import/agent logic)
+- [`docs/`](docs/) — project documentation
+- [`plans/`](plans/) — design and modernization planning notes
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [UI notes/spec](docs/UI-SPEC.md)
+
+## Development notes
+
+- Frontend dev server is configured for Tauri (`vite.config.ts`, fixed port behavior).
+- CI (`.github/workflows/ci.yml`) runs frontend build and backend `cargo check`, `clippy`, and `test` on Linux.
 
 ## License
 
-This project is licensed under the GPL v3 License - see the LICENSE file for details.
+This project is licensed under the GNU General Public License v3.0. See [`LICENSE.txt`](LICENSE.txt).
