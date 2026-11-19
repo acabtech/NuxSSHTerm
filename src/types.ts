@@ -216,7 +216,8 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
 
 /** A node in the tileable work-area layout tree. */
 export type LayoutNode =
-  | { kind: "leaf"; id: string; tabId: string | null }
+  | { kind: "leaf"; id: string; tabId: string | null; /** user-created empty pane: survives normalization until filled or closed. */
+      keepEmpty?: boolean }
   | { kind: "split"; id: string; dir: "row" | "col"; sizes: number[]; children: LayoutNode[] };
 
 export const DEFAULT_LAYOUT: LayoutNode = {

@@ -73,8 +73,12 @@ function normalize(node: LayoutNode): LayoutNode {
     c.kind === "split" && c.dir === node.dir ? c.children : [c],
   );
 
-  // Drop empty leaves, but keep one if the whole branch is empty.
-  const nonEmpty = children.filter((c) => !(c.kind === "leaf" && c.tabId === null));
+  // Drop empty leaves, but keep one if the whole branch is empty. Empty
+  // leaves explicitly created by the user (split with no tab) are kept so
+  // the split is usable as a drop target — issue #17.
+  const isPrunable = (c: LayoutNode) =>
+    c.kind === "leaf" && c.tabId === null && c.keepEmpty !== true;
+  const nonEmpty = children.filter((c) => !isPrunable(c));
   if (nonEmpty.length > 0 && nonEmpty.length < children.length) {
     children = nonEmpty;
   } else if (nonEmpty.length === 0) {
@@ -104,9 +108,9 @@ export function ensureLayout(node: LayoutNode, tabIds: string[], preferredLeafId
   // Prune dead tabs.
   let tree: LayoutNode = node.kind === "leaf"
     ? node.tabId && !alive.has(node.tabId)
-      ? { ...node, tabId: null }
+      ? { ...node, tabId: null, keepEmpty: undefined }
       : node
-    : mapTree(node, (l) => (l.tabId && !alive.has(l.tabId) ? { ...l, tabId: null } : l));
+    : mapTree(node, (l) => (l.tabId && !alive.has(l.tabId) ? { ...l, tabId: null, keepEmpty: undefined } : l));
 
   // Assign unplaced tabs.
   for (const tabId of tabIds) {
@@ -128,12 +132,12 @@ function assignTab(node: LayoutNode, tabId: string, preferredLeafId?: string | n
   if (preferredLeafId) {
     const pref = findLeaf(node, preferredLeafId);
     if (pref && pref.kind === "leaf" && pref.tabId === null) {
-      return mapLeaf(node, preferredLeafId, (l) => ({ ...l, tabId }));
+      return mapLeaf(node, preferredLeafId, (l) => ({ ...l, tabId, keepEmpty: undefined }));
     }
   }
   // 2. any empty leaf
   const empty = collectLeaves(node).find((l) => l.tabId === null);
-  if (empty) return mapLeaf(node, empty.id, (l) => ({ ...l, tabId }));
+  if (empty) return mapLeaf(node, empty.id, (l) => ({ ...l, tabId, keepEmpty: undefined }));
   // 3. split the preferred leaf (or the first leaf)
   const targetId = preferredLeafId ?? collectLeaves(node)[0]?.id;
   if (!targetId) return { kind: "split", id: uid(), dir: "row", sizes: [50, 50], children: [node, { kind: "leaf", id: uid(), tabId }] };
@@ -142,9 +146,14 @@ function assignTab(node: LayoutNode, tabId: string, preferredLeafId?: string | n
 
 /** Split `leafId` along `dir`, moving its tab into the first pane. */
 export function splitLeaf(node: LayoutNode, leafId: string, newTabId?: string | null, dir: SplitDir = "row"): LayoutNode {
+  const explicit = newTabId == null;
   const out = mapLeaf(node, leafId, (l) => {
     const a: LayoutNode = { kind: "leaf", id: uid(), tabId: l.tabId };
-    const b: LayoutNode = { kind: "leaf", id: uid(), tabId: newTabId ?? null };
+    // An explicit split (no tab) creates an intentional empty pane that
+    // must survive normalization until it is filled or closed (issue #17).
+    const b: LayoutNode = explicit
+      ? { kind: "leaf", id: uid(), tabId: null, keepEmpty: true }
+      : { kind: "leaf", id: uid(), tabId: newTabId };
     return { kind: "split", id: uid(), dir, sizes: [50, 50], children: [a, b] };
   });
   return normalize(out);
@@ -161,8 +170,8 @@ export function moveTabToLeaf(node: LayoutNode, leafId: string, tabId: string): 
   if (moved === leafId) return node;
 
   const targetTab = (target as { tabId: string | null }).tabId;
-  let out = mapLeaf(node, leafId, (l) => ({ ...l, tabId }));
-  if (moved) out = mapLeaf(out, moved, (l) => ({ ...l, tabId: targetTab }));
+  let out = mapLeaf(node, leafId, (l) => ({ ...l, tabId, keepEmpty: undefined }));
+  if (moved) out = mapLeaf(out, moved, (l) => ({ ...l, tabId: targetTab, keepEmpty: undefined }));
   return normalize(out);
 }
 
@@ -180,7 +189,7 @@ export function neighborLeaf(node: LayoutNode, leafId: string): string | null {
  * caller via `closeTab`). Returns the pruned tree.
  */
 export function closeLeaf(node: LayoutNode, leafId: string): LayoutNode {
-  const out = mapLeaf(node, leafId, () => ({ kind: "leaf", id: leafId, tabId: null }));
+  const out = mapLeaf(node, leafId, () => ({ kind: "leaf", id: leafId, tabId: null, keepEmpty: undefined }));
   return normalize(out);
 }
 
