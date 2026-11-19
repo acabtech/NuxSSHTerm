@@ -1,6 +1,6 @@
 # NuxSSHTerm — Architecture
 
-This document describes the current architecture and implementation shape of NuxSSHTerm as reflected in the repository (`package.json`/`Cargo.toml` version `0.5.1`).
+This document describes the current architecture and implementation shape of NuxSSHTerm as reflected in the repository (`package.json`/`Cargo.toml` version `0.5.2`).
 
 ## Overview
 
