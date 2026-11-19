@@ -66,21 +66,22 @@ fn askpass_setup(id: &str, password: &str) -> (PathBuf, PathBuf) {
     let helper = dir.join("pty-askpass.sh");
     if !helper.exists() {
         let _ = std::fs::write(&helper, "#!/bin/sh\ncat \"${NX_PTY_ASKPASS_FILE}\"\n");
-        let _ = std::fs::set_permissions(
-            &helper,
-            std::os::unix::fs::PermissionsExt::from_mode(0o700),
-        );
+        let _ =
+            std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o700));
     }
     let safe_id: String = id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let file = dir.join(format!(".pty-askpass-{safe_id}"));
     let _ = std::fs::write(&file, password);
-    let _ = std::fs::set_permissions(
-        &file,
-        std::os::unix::fs::PermissionsExt::from_mode(0o600),
-    );
+    let _ = std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o600));
     (helper, file)
 }
 
@@ -95,13 +96,11 @@ pub fn pty_open(
     rows: u16,
     password: Option<String>,
 ) -> Result<(), String> {
-    let pair = native_pty_system()
-        .openpty(size(cols, rows))
-        .map_err(|e| {
-            let msg = format!("openpty failed: {e}");
-            crate::log::error("pty_open", &msg);
-            msg
-        })?;
+    let pair = native_pty_system().openpty(size(cols, rows)).map_err(|e| {
+        let msg = format!("openpty failed: {e}");
+        crate::log::error("pty_open", &msg);
+        msg
+    })?;
 
     let local_shell = spec.host.is_empty();
     // SSH auth ordering (issue #8): decide whether the agent socket is exported
@@ -109,10 +108,19 @@ pub fn pty_open(
     let mut auth_args: Vec<String> = Vec::new();
     let mut auth_env: Vec<(String, String)> = Vec::new();
     let mut effective_spec = spec.clone();
+    let mut askpass_password: Option<String> = None;
     if !local_shell {
         let auth = crate::store::get_ui_settings().auth;
-        let has_credential = !spec.private_key.is_empty()
-            || password.as_deref().map_or(false, |p| !p.is_empty());
+        // agent_only promises "only ssh-agent identities (ignore stored
+        // credential)", so drop the stored credential before computing policy
+        // or building argv (issue #21).
+        if auth.suppresses_credentials() {
+            effective_spec.private_key = String::new();
+        } else {
+            askpass_password = password.clone().filter(|p| !p.is_empty());
+        }
+        let has_credential = !effective_spec.private_key.is_empty()
+            || askpass_password.as_deref().map_or(false, |p| !p.is_empty());
         let (policy_export_agent, identities_only) = auth.session_policy(has_credential);
         let agent_socket = if policy_export_agent {
             crate::agent::session_socket()
@@ -162,10 +170,9 @@ pub fn pty_open(
     // Feed a vault password to ssh's password prompt via askpass. This is what
     // makes saved passwords work for terminal sessions (sftp already does the
     // same in `sftp::open`); without it ssh always prompts on the PTY.
+    // Suppressed for `agent_only` (askpass_password stays None above).
     let mut askpass_file = None;
-    if !local_shell
-        && let Some(pw) = password.filter(|p| !p.is_empty())
-    {
+    if !local_shell && let Some(pw) = askpass_password {
         let (helper, file) = askpass_setup(&id, &pw);
         cmd.env("SSH_ASKPASS", &helper);
         cmd.env("SSH_ASKPASS_REQUIRE", "force");
@@ -175,32 +182,23 @@ pub fn pty_open(
         askpass_file = Some(file);
     }
 
-    let child = pair
-        .slave
-        .spawn_command(cmd)
-        .map_err(|e| {
-            let msg = format!("failed to spawn session: {e}");
-            crate::log::error("pty_open", &msg);
-            msg
-        })?;
+    let child = pair.slave.spawn_command(cmd).map_err(|e| {
+        let msg = format!("failed to spawn session: {e}");
+        crate::log::error("pty_open", &msg);
+        msg
+    })?;
     drop(pair.slave); // so the child sees EOF when it exits
 
-    let mut reader = pair
-        .master
-        .try_clone_reader()
-        .map_err(|e| {
-            let msg = format!("pty reader failed: {e}");
-            crate::log::error("pty_open", &msg);
-            msg
-        })?;
-    let writer = pair
-        .master
-        .take_writer()
-        .map_err(|e| {
-            let msg = format!("pty writer failed: {e}");
-            crate::log::error("pty_open", &msg);
-            msg
-        })?;
+    let mut reader = pair.master.try_clone_reader().map_err(|e| {
+        let msg = format!("pty reader failed: {e}");
+        crate::log::error("pty_open", &msg);
+        msg
+    })?;
+    let writer = pair.master.take_writer().map_err(|e| {
+        let msg = format!("pty writer failed: {e}");
+        crate::log::error("pty_open", &msg);
+        msg
+    })?;
 
     // Stream PTY output to the frontend.
     let app_for_thread = app.clone();
@@ -272,9 +270,10 @@ pub fn pty_resize(
 pub fn pty_close(state: State<'_, PtyState>, id: String) -> Result<(), String> {
     let mut map = state.0.lock().unwrap();
     if let Some(sess) = map.remove(&id)
-        && let Ok(mut child) = sess.child.lock() {
-            let _ = child.kill();
-        }
+        && let Ok(mut child) = sess.child.lock()
+    {
+        let _ = child.kill();
+    }
     Ok(())
 }
 

@@ -42,7 +42,7 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
           ...(s.sidebar ?? {}),
           width: clampSidebarWidth((s.sidebar ?? DEFAULT_UI_SETTINGS.sidebar).width),
         };
-        const authRaw = ((s as Partial<UiSettings>).auth ?? {}) as Partial<AuthSettings>;
+        const authRaw = ((s as Partial<UiSettings>).auth ?? {}) as Partial<AuthSettings> & { agentFallbackSecs?: number };
         const ORDERS: readonly AuthSettings["authOrder"][] = ["credential_first", "agent_first", "agent_only"];
         const auth: AuthSettings = {
           ...DEFAULT_UI_SETTINGS.auth,
@@ -51,9 +51,14 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
             ? (authRaw.authOrder as AuthSettings["authOrder"])
             : DEFAULT_UI_SETTINGS.auth.authOrder,
         };
-        const fallback = Number(auth.agentFallbackSecs);
-        auth.agentFallbackSecs =
-          Number.isFinite(fallback) && fallback >= 0 ? Math.min(Math.round(fallback), 60) : DEFAULT_UI_SETTINGS.auth.agentFallbackSecs;
+        // Migrate the legacy timed fallback (issue #12): it only ever acted as
+        // on/off at runtime, so fold any nonzero delay into the boolean.
+        if (typeof auth.agentFallback !== "boolean") {
+          auth.agentFallback =
+            typeof authRaw.agentFallbackSecs === "number"
+              ? authRaw.agentFallbackSecs > 0
+              : DEFAULT_UI_SETTINGS.auth.agentFallback;
+        }
         const merged = {
           ...DEFAULT_UI_SETTINGS,
           ...s,

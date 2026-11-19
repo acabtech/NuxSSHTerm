@@ -285,22 +285,20 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
               </select>
             </label>
             <label>
-              Agent fallback delay (seconds)
+              Agent fallback
               <select
-                value={ui.auth.agentFallbackSecs}
+                value={ui.auth.agentFallback ? "1" : "0"}
                 disabled={ui.auth.authOrder !== "credential_first"}
-                onChange={(e) => onPatchAuth({ agentFallbackSecs: parseInt(e.target.value, 10) || 0 })}
+                onChange={(e) => onPatchAuth({ agentFallback: e.target.value === "1" })}
               >
-                <option value={0}>Never — use the session credential only</option>
-                <option value={3}>After 3 seconds</option>
-                <option value={5}>After 5 seconds</option>
-                <option value={10}>After 10 seconds</option>
+                <option value="0">Never — use the session credential only</option>
+                <option value="1">Offer ssh-agent identities after the credential</option>
               </select>
             </label>
             <div className="note">
               "Prefer session credential" pins the connection's key/password first (IdentitiesOnly while no
-              fallback is configured) and offers ssh-agent identities after the fallback delay. Applies to
-              newly opened terminal and SFTP tabs.
+              fallback is configured) and offers ssh-agent identities after it when the fallback is enabled.
+              Applies to newly opened terminal and SFTP tabs.
             </div>
           </div>
           </>

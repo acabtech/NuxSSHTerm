@@ -4,7 +4,7 @@
 //! survive restarts but do not belong in the WinSSHTerm schema (agent record,
 //! per-session ForwardAgent flags).
 
-use crate::model::{Node, KIND_CONNECTION};
+use crate::model::{KIND_CONNECTION, Node};
 use crate::xml;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -71,34 +71,67 @@ fn default_true() -> bool {
 /// credential configured per connection (private key / vault password) or the
 /// ssh-agent identities, and whether agent identities are offered as fallback
 /// after a credential-first attempt fails.
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase", default)]
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AuthSettings {
     /// "credential_first" | "agent_first" | "agent_only"
     pub auth_order: String,
-    /// Seconds to wait before falling back to agent identities when
+    /// Offer agent identities as a fallback after the session credential when
     /// "credential_first" is set and a session credential exists.
-    /// 0 = never offer agent identities (credential only).
-    pub agent_fallback_secs: u32,
+    /// false = never offer agent identities (credential only).
+    pub agent_fallback: bool,
+}
+
+impl<'de> Deserialize<'de> for AuthSettings {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Raw {
+            #[serde(default)]
+            auth_order: String,
+            #[serde(default)]
+            agent_fallback: Option<bool>,
+            /// Legacy timed field (issue #12): `agentFallbackSecs` was only ever
+            /// consulted as on/off, so migrate any nonzero value to enabled.
+            #[serde(default)]
+            agent_fallback_secs: Option<u32>,
+        }
+        let raw = Raw::deserialize(d)?;
+        let agent_fallback = raw
+            .agent_fallback
+            .or_else(|| raw.agent_fallback_secs.map(|s| s > 0))
+            .unwrap_or(true);
+        Ok(Self {
+            auth_order: raw.auth_order,
+            agent_fallback,
+        })
+    }
 }
 
 impl Default for AuthSettings {
     fn default() -> Self {
         Self {
             auth_order: "credential_first".to_string(),
-            agent_fallback_secs: 3,
+            agent_fallback: true,
         }
     }
 }
 
 impl AuthSettings {
+    /// Whether stored credentials (private key / vault password) must be
+    /// suppressed entirely for this session. True only for `agent_only`,
+    /// which promises "only ssh-agent identities (ignore stored credential)".
+    pub fn suppresses_credentials(&self) -> bool {
+        self.auth_order == "agent_only"
+    }
+
     /// Effective policy for one session: whether to export `SSH_AUTH_SOCK` to
     /// the child and whether to pin identity selection with `IdentitiesOnly`.
     ///
     /// - `agent_only` / `agent_first`: always export the agent socket.
     /// - `credential_first` with a configured credential: export the agent
-    ///   socket only when a fallback is configured (>0s) — ssh naturally tries
-    ///   the explicit `-i` key / askpass password first and agent identities
+    ///   socket only when the fallback is enabled — ssh naturally tries the
+    ///   explicit `-i` key / askpass password first and agent identities
     ///   after, which realises the staged fallback. With no fallback the
     ///   socket is withheld and `IdentitiesOnly=yes` pins the credential.
     /// - `credential_first` without a credential: nothing to prefer; behave
@@ -108,12 +141,10 @@ impl AuthSettings {
             "agent_only" => (true, false),
             "agent_first" => (true, false),
             _ => {
-                if has_credential {
-                    if self.agent_fallback_secs > 0 {
-                        (true, false)
-                    } else {
-                        (false, true)
-                    }
+                if has_credential && self.agent_fallback {
+                    (true, false)
+                } else if has_credential {
+                    (false, true)
                 } else {
                     (true, false)
                 }
@@ -256,9 +287,10 @@ pub struct Settings {
 
 pub fn load_settings() -> Settings {
     if let Ok(bytes) = std::fs::read(settings_path())
-        && let Ok(s) = serde_json::from_slice::<Settings>(&bytes) {
-            return s;
-        }
+        && let Ok(s) = serde_json::from_slice::<Settings>(&bytes)
+    {
+        return s;
+    }
     Settings::default()
 }
 
@@ -339,11 +371,12 @@ fn apply_forward_agent_flags(
 /// Load the session tree; returns an empty tree on first run.
 pub fn load_tree() -> Vec<Node> {
     let mut nodes = if let Ok(s) = std::fs::read_to_string(connections_path())
-        && let Ok(nodes) = xml::parse_connections(&s) {
-                nodes
-            } else {
-                Vec::new()
-            };
+        && let Ok(nodes) = xml::parse_connections(&s)
+    {
+        nodes
+    } else {
+        Vec::new()
+    };
     apply_forward_agent(&mut nodes);
     nodes
 }
@@ -391,7 +424,10 @@ mod tests {
 
         assert!(exported.contains("prod.example"));
         assert!(exported.contains("deploy"));
-        assert!(!exported.contains("super-secret"), "export must strip passwords");
+        assert!(
+            !exported.contains("super-secret"),
+            "export must strip passwords"
+        );
         assert!(
             exported.contains("Password=\"\""),
             "password attribute must be blank in exports"
@@ -401,9 +437,12 @@ mod tests {
     #[test]
     fn forward_agent_flags_apply_to_real_tree() {
         let mut nodes = vec![
-            Node::container("group", true).with_children(vec![
-                Node::connection("nested", "nested.example", "u", 22),
-            ]),
+            Node::container("group", true).with_children(vec![Node::connection(
+                "nested",
+                "nested.example",
+                "u",
+                22,
+            )]),
             Node::connection("top", "top.example", "u", 22),
         ];
         let mut flags = HashMap::new();
@@ -412,8 +451,14 @@ mod tests {
 
         apply_forward_agent_flags(&mut nodes, &flags, &mut Vec::new());
 
-        assert!(nodes[0].children[0].forward_agent, "nested flag must reach the returned tree");
-        assert!(nodes[1].forward_agent, "top-level flag must reach the returned tree");
+        assert!(
+            nodes[0].children[0].forward_agent,
+            "nested flag must reach the returned tree"
+        );
+        assert!(
+            nodes[1].forward_agent,
+            "top-level flag must reach the returned tree"
+        );
     }
 
     #[test]
@@ -429,9 +474,12 @@ mod tests {
     #[test]
     fn collect_and_apply_use_the_same_path_key() {
         let mut nodes = vec![
-            Node::container("group", true).with_children(vec![
-                Node::connection("nested", "nested.example", "u", 22),
-            ]),
+            Node::container("group", true).with_children(vec![Node::connection(
+                "nested",
+                "nested.example",
+                "u",
+                22,
+            )]),
         ];
         nodes[0].children[0].forward_agent = true;
         let flags = collect_forward_agent(&nodes);
@@ -439,11 +487,39 @@ mod tests {
         assert_eq!(flags.get("group/nested"), Some(&true));
 
         let mut loaded = vec![
-            Node::container("group", true).with_children(vec![
-                Node::connection("nested", "nested.example", "u", 22),
-            ]),
+            Node::container("group", true).with_children(vec![Node::connection(
+                "nested",
+                "nested.example",
+                "u",
+                22,
+            )]),
         ];
         apply_forward_agent_flags(&mut loaded, &flags, &mut Vec::new());
         assert!(loaded[0].children[0].forward_agent);
+    }
+
+    #[test]
+    fn agent_only_suppresses_credentials() {
+        let auth = AuthSettings {
+            auth_order: "agent_only".into(),
+            agent_fallback: true,
+        };
+        assert!(auth.suppresses_credentials());
+    }
+
+    #[test]
+    fn credential_fallback_bool_matches_legacy_secs_semantics() {
+        // Issue #12: the runtime only ever treated the timed fallback as on/off.
+        let on: AuthSettings =
+            serde_json::from_str(r#"{"authOrder":"credential_first","agentFallbackSecs":5}"#)
+                .unwrap();
+        assert!(on.agent_fallback);
+        assert_eq!(on.session_policy(true), (true, false));
+
+        let off: AuthSettings =
+            serde_json::from_str(r#"{"authOrder":"credential_first","agentFallbackSecs":0}"#)
+                .unwrap();
+        assert!(!off.agent_fallback);
+        assert_eq!(off.session_policy(true), (false, true));
     }
 }
