@@ -171,7 +171,21 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
             <h3>Terminal</h3>
             <label>
               Font family
-              <input value="JetBrains Mono, monospace" readOnly title="Custom fonts land in v0.6" />
+              <select
+                value={ui.terminal.fontFamily}
+                onChange={(e) => onPatchTerminal({ fontFamily: e.target.value })}
+              >
+                <option value='"JetBrains Mono", ui-monospace, "DejaVu Sans Mono", Consolas, monospace'>
+                  JetBrains Mono
+                </option>
+                <option value='"DejaVu Sans Mono", ui-monospace, monospace'>DejaVu Sans Mono</option>
+                <option value='"Fira Code", ui-monospace, monospace'>Fira Code</option>
+                <option value='"Cascadia Code", ui-monospace, monospace'>Cascadia Code</option>
+                <option value='"Noto Sans Mono", ui-monospace, monospace'>Noto Sans Mono</option>
+                <option value='"Liberation Mono", ui-monospace, monospace'>Liberation Mono</option>
+                <option value='ui-monospace, "DejaVu Sans Mono", monospace'>System monospace</option>
+              </select>
+              <div className="note">Applied to newly opened terminal tabs.</div>
             </label>
             <label>
               Font size
@@ -229,7 +243,15 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
                 }
               />
             </label>
-            <div className="note">Terminal options apply to newly opened tabs (bell applies to new tabs).</div>
+            <label className="row">
+              <input
+                type="checkbox"
+                checked={ui.restoreTabs}
+                onChange={(e) => onPatch({ restoreTabs: e.target.checked })}
+              />
+              Restore opened tabs and pane layout on restart
+            </label>
+            <div className="note">Terminal options apply to newly opened tabs (bell applies to new tabs). When restore is enabled, the last workspace snapshot (tab list, titles, layout, active pane) is saved on exit and re-opened on the next launch — never vault passwords.</div>
           </div>
         )}
 

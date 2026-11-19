@@ -67,6 +67,11 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
           sidebar,
           auth,
         };
+        merged.terminal.fontFamily =
+          typeof merged.terminal.fontFamily === "string" && merged.terminal.fontFamily.trim()
+            ? merged.terminal.fontFamily
+            : DEFAULT_UI_SETTINGS.terminal.fontFamily;
+        merged.restoreTabs = Boolean(merged.restoreTabs);
         merged.accentColor = normalizeHexColor(merged.accentColor);
         merged.terminal.cursorStyle = normalizeCursorStyle(merged.terminal.cursorStyle);
         merged.terminal.bellStyle = normalizeBellStyle((merged.terminal as UiSettings["terminal"]).bellStyle);

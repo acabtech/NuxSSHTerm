@@ -43,7 +43,7 @@ export function TerminalView({ tab, active, term: termSettings }: { tab: Tab; ac
     if (!host || termRef.current) return;
 
     const term = new Terminal({
-      fontFamily: '"JetBrains Mono", ui-monospace, "DejaVu Sans Mono", Consolas, monospace',
+      fontFamily: termSettings.fontFamily || '"JetBrains Mono", ui-monospace, "DejaVu Sans Mono", Consolas, monospace',
       fontSize: termSettings.fontSize,
       cursorBlink: termSettings.cursorBlink,
       cursorStyle: termSettings.cursorStyle,
@@ -142,6 +142,7 @@ export function TerminalView({ tab, active, term: termSettings }: { tab: Tab; ac
     const t = termRef.current;
     if (!t) return;
     t.options.fontSize = termSettings.fontSize;
+    t.options.fontFamily = termSettings.fontFamily;
     t.options.cursorBlink = termSettings.cursorBlink;
     t.options.cursorStyle = termSettings.cursorStyle;
     t.options.scrollback = termSettings.scrollback;

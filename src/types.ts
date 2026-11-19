@@ -133,6 +133,8 @@ export type CursorStyle = "block" | "underline" | "bar";
 /** xterm.js terminal preferences (mirrors the Rust `TerminalSettings`). */
 export interface TerminalSettings {
   fontSize: number;
+  /** CSS font-family string for xterm.js (issue #16). */
+  fontFamily: string;
   scrollback: number;
   cursorBlink: boolean;
   cursorStyle: CursorStyle;
@@ -198,6 +200,8 @@ export interface UiSettings {
   sidebar: SidebarSettings;
   /** SSH authentication ordering / agent fallback (issue #8). */
   auth: AuthSettings;
+  /** Opt-in: restore open tabs + pane layout on restart (issue #15). */
+  restoreTabs: boolean;
 }
 
 export const DEFAULT_UI_SETTINGS: UiSettings = {
@@ -208,10 +212,18 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   vaultAutoLockMinutes: 0,
   defaultForwardAgent: false,
   defaultPrivateKey: "",
-  terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true, cursorStyle: "block", bellStyle: "visual" },
+  terminal: {
+    fontSize: 13,
+    fontFamily: '"JetBrains Mono", ui-monospace, "DejaVu Sans Mono", Consolas, monospace',
+    scrollback: 10000,
+    cursorBlink: true,
+    cursorStyle: "block",
+    bellStyle: "visual",
+  },
   transfer: { confirmBeforeOverwrite: true, confirmBeforeDelete: true, defaultLocalPath: "" },
   sidebar: { width: 320, collapseMode: "hover", collapseDelayMs: 0 },
   auth: { authOrder: "credential_first", agentFallback: true },
+  restoreTabs: false,
 };
 
 /** A node in the tileable work-area layout tree. */

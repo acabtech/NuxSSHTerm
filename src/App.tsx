@@ -39,6 +39,7 @@ import {
   useLayout,
 } from "./hooks/useLayout";
 import { buildMenus } from "./lib/menuActions";
+import { getWorkspace, setWorkspace } from "./api";
 import { accentSoftFromHex, normalizeHexColor } from "./lib/color";
 import { emptyNode, type SessionNode, type Tab } from "./types";
 import { applyPasswords, clearPasswords, getAt, insertAt, pathKey } from "./lib/tree";
@@ -250,6 +251,65 @@ export default function App() {
     return out;
     // slotsVersion re-triggers after callback-refs register new leaf slots
   }, [layout, tabs, page, slotsVersion]);
+
+  /* ---------------- workspace restore (issue #15) ---------------- */
+
+  // Restore once, after settings have actually loaded from disk.
+  const settingsLoadedRef = useRef(false);
+  const settingsLoadKey = JSON.stringify({ r: ui.restoreTabs, t: ui.terminal });
+  useEffect(() => {
+    if (settingsLoadedRef.current) return;
+    settingsLoadedRef.current = true;
+    (async () => {
+      try {
+        if (!ui.restoreTabs) return;
+        const snap = (await getWorkspace()) as {
+          tabs?: Tab[];
+          layout?: unknown;
+          activeLeafId?: string;
+        } | null;
+        if (snap && Array.isArray(snap.tabs) && snap.tabs.length > 0) {
+          const restored = snap.tabs.map((t) => ({ ...t, password: undefined, exited: false }));
+          tabsApi.setTabs(restored);
+          if (snap.layout) setLayout(snap.layout as Parameters<typeof setLayout>[0]);
+          if (snap.activeLeafId) setActiveLeafId(snap.activeLeafId);
+          notify(`Restored ${restored.length} tab(s) from the last session`);
+        }
+      } catch {
+        /* no snapshot / not under Tauri — fresh start */
+      }
+    })();
+    // Run once, once settings came off disk (key changes when loaded).
+  }, [settingsLoadKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist the workspace snapshot (debounced) whenever tabs/layout change.
+  useEffect(() => {
+    if (!ui.restoreTabs) return;
+    const h = window.setTimeout(() => {
+      void setWorkspace({
+        tabs: tabs.map(({ password: _password, ...rest }) => rest),
+        layout,
+        activeLeafId,
+      }).catch(() => {});
+    }, 800);
+    return () => window.clearTimeout(h);
+  }, [tabIdsKey, layout, activeLeafId, ui.restoreTabs]);
+
+  // Save immediately when the window is about to close (beforeunload is
+  // unreliable for async invokes, so the debounced path above is the main
+  // mechanism; this flush is best-effort for quick open-and-quit flows).
+  useEffect(() => {
+    const onUnload = () => {
+      if (!ui.restoreTabs) return;
+      void setWorkspace({
+        tabs: tabs.map(({ password: _password, ...rest }) => rest),
+        layout,
+        activeLeafId,
+      }).catch(() => {});
+    };
+    window.addEventListener("beforeunload", onUnload);
+    return () => window.removeEventListener("beforeunload", onUnload);
+  }, [tabs, layout, activeLeafId, ui.restoreTabs]);
 
   /* ----------------------------- handlers ----------------------------- */
 

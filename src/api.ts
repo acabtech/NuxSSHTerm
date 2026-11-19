@@ -10,6 +10,10 @@ export const getConfigDir = () => invoke<string>("config_dir");
 // ---- v0.5.0: persisted UI chrome settings ----
 export const getUiSettings = () => invoke<UiSettings>("get_ui_settings");
 export const setUiSettings = (ui: UiSettings) => invoke<void>("set_ui_settings", { ui });
+
+// ---- Workspace persistence (issue #15) ----
+export const getWorkspace = () => invoke<unknown | null>("get_workspace");
+export const setWorkspace = (v: unknown) => invoke<void>("set_workspace", { v });
 export const importConnectionsFile = (path: string) =>
   invoke<SessionNode[]>("import_connections_file", { path });
 export const exportConnectionsFile = (path: string, tree: SessionNode[]) =>

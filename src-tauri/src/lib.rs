@@ -36,6 +36,18 @@ fn set_ui_settings(ui: UiSettings) -> Result<(), String> {
     store::set_ui_settings(&ui)
 }
 
+/// Load the last saved workspace snapshot (issue #15), if any.
+#[tauri::command]
+fn get_workspace() -> Option<serde_json::Value> {
+    store::get_workspace()
+}
+
+/// Persist the workspace snapshot (issue #15).
+#[tauri::command]
+fn set_workspace(v: serde_json::Value) -> Result<(), String> {
+    store::set_workspace(v)
+}
+
 #[tauri::command]
 fn save_tree(tree: Vec<Node>) -> Result<(), String> {
     store::save_tree(&tree).inspect_err(|e| {
@@ -102,6 +114,8 @@ pub fn run() {
             config_dir,
             get_ui_settings,
             set_ui_settings,
+            get_workspace,
+            set_workspace,
             import_connections_file,
             export_connections_file,
             pty::pty_open,

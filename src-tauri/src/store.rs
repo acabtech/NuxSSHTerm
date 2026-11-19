@@ -29,6 +29,10 @@ fn default_cursor_style() -> String {
     "block".to_string()
 }
 
+fn default_font_family() -> String {
+    "\"JetBrains Mono\", ui-monospace, \"DejaVu Sans Mono\", Consolas, monospace".to_string()
+}
+
 fn default_bell_style() -> String {
     "visual".to_string()
 }
@@ -39,6 +43,9 @@ fn default_bell_style() -> String {
 pub struct TerminalSettings {
     /// xterm.js `fontSize` in CSS pixels.
     pub font_size: u32,
+    /// xterm.js `fontFamily` (CSS font-family string; issue #16).
+    #[serde(default = "default_font_family")]
+    pub font_family: String,
     /// xterm.js `scrollback` (buffer lines kept per pane).
     pub scrollback: u32,
     /// xterm.js `cursorBlink`.
@@ -55,6 +62,7 @@ impl Default for TerminalSettings {
     fn default() -> Self {
         Self {
             font_size: 13,
+            font_family: default_font_family(),
             scrollback: 10000,
             cursor_blink: true,
             cursor_style: default_cursor_style(),
@@ -210,6 +218,10 @@ impl Default for SidebarSettings {
     }
 }
 
+fn default_false() -> bool {
+    false
+}
+
 /// The v0.5.0 modernized UI chrome settings (design-system tweaks + terminal).
 /// Everything here is non-secret and safe to store in plain `settings.json`.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -243,6 +255,10 @@ pub struct UiSettings {
     /// SSH authentication ordering / agent fallback (issue #8).
     #[serde(default = "default_auth")]
     pub auth: AuthSettings,
+    /// Opt-in: restore the last workspace (open tabs + pane layout) on start
+    /// (issue #15). Default off for backward-compatible "fresh start".
+    #[serde(default = "default_false")]
+    pub restore_tabs: bool,
 }
 
 fn default_sidebar() -> SidebarSettings {
@@ -263,6 +279,7 @@ impl Default for UiSettings {
             transfer: TransferSettings::default(),
             sidebar: SidebarSettings::default(),
             auth: AuthSettings::default(),
+            restore_tabs: false,
         }
     }
 }
@@ -270,6 +287,10 @@ impl Default for UiSettings {
 /// NuxSSHTerm's own non-secret settings (kept out of the WinSSHTerm XML).
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Settings {
+    /// Serialized last-workspace snapshot (tabs + layout) for issue #15
+    /// restore. Never contains vault passwords or secrets.
+    #[serde(default)]
+    pub workspace: Option<serde_json::Value>,
     /// Socket path of the dedicated `ssh-agent` this app spawned ("" = none).
     #[serde(default)]
     pub agent_socket: String,
@@ -317,6 +338,18 @@ pub fn set_ui_settings(ui: &UiSettings) -> Result<(), String> {
     // Clamp sanity-sensitive values regardless of what the caller sent.
     s.ui.sidebar.width = s.ui.sidebar.width.clamp(200, 560);
     s.ui.sidebar.collapse_delay_ms = s.ui.sidebar.collapse_delay_ms.min(20_000);
+    save_settings(&s)
+}
+
+/// Load the last saved workspace snapshot, if any (issue #15).
+pub fn get_workspace() -> Option<serde_json::Value> {
+    load_settings().workspace
+}
+
+/// Persist the workspace snapshot (issue #15).
+pub fn set_workspace(v: serde_json::Value) -> Result<(), String> {
+    let mut s = load_settings();
+    s.workspace = Some(v);
     save_settings(&s)
 }
 
