@@ -246,17 +246,44 @@ pub fn parse_ls_line(line: &str) -> Option<SftpEntry> {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum SftpOp {
-    Mkdir { path: String },
-    Rmdir { path: String },
-    Rm { path: String },
-    Rename { from: String, to: String },
-    Chmod { mode: String, path: String },
-    Chown { uid: String, path: String },
-    Symlink { target: String, link: String },
-    Get { remote: String, local: String },
-    Put { local: String, remote: String },
+    Mkdir {
+        path: String,
+    },
+    Rmdir {
+        path: String,
+    },
+    Rm {
+        path: String,
+    },
+    Rename {
+        from: String,
+        to: String,
+    },
+    Chmod {
+        mode: String,
+        path: String,
+    },
+    Chown {
+        uid: String,
+        path: String,
+    },
+    Symlink {
+        target: String,
+        link: String,
+    },
+    Get {
+        remote: String,
+        local: String,
+    },
+    Put {
+        local: String,
+        remote: String,
+    },
     /// Recursive delete via depth-first walk (sftp has no `rm -r`).
-    RmR { path: String, is_dir: bool },
+    RmR {
+        path: String,
+        is_dir: bool,
+    },
 }
 
 /// Depth-first recursive delete on the *same* sftp child (no extra auth, no
@@ -303,11 +330,9 @@ fn askpass_setup(id: &str, password: &str) -> (PathBuf, PathBuf) {
     let dir = crate::store::config_dir();
     let helper = dir.join("sftp-askpass.sh");
     if !helper.exists() {
-        let _ = std::fs::write(
-            &helper,
-            "#!/bin/sh\ncat \"${NX_SFTP_ASKPASS_FILE}\"\n",
-        );
-        let _ = std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o700));
+        let _ = std::fs::write(&helper, "#!/bin/sh\ncat \"${NX_SFTP_ASKPASS_FILE}\"\n");
+        let _ =
+            std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o700));
     }
     let file = dir.join(format!(".sftp-askpass-{id}"));
     let _ = std::fs::write(&file, password);
@@ -323,8 +348,18 @@ pub fn open(
     password: Option<String>,
 ) -> Result<(SftpSession, String), String> {
     let auth = crate::store::get_ui_settings().auth;
-    let has_credential =
-        !spec.private_key.is_empty() || password.as_deref().map_or(false, |p| !p.is_empty());
+    // agent_only promises "only ssh-agent identities (ignore stored
+    // credential)", so drop the stored credential before computing policy
+    // or building argv (issue #21).
+    let mut effective_spec = spec.clone();
+    let askpass_password: Option<String> = if auth.suppresses_credentials() {
+        effective_spec.private_key = String::new();
+        None
+    } else {
+        password.clone().filter(|p| !p.is_empty())
+    };
+    let has_credential = !effective_spec.private_key.is_empty()
+        || askpass_password.as_deref().map_or(false, |p| !p.is_empty());
     let (policy_export_agent, identities_only) = auth.session_policy(has_credential);
     let agent_socket = if policy_export_agent {
         crate::agent::session_socket()
@@ -339,7 +374,6 @@ pub fn open(
         );
     }
 
-    let mut effective_spec = spec.clone();
     effective_spec.forward_agent = spec.forward_agent && can_export_agent;
 
     let mut cmd = Command::new("sftp");
@@ -355,7 +389,9 @@ pub fn open(
     for a in argv {
         cmd.arg(a);
     }
-    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     // SSH auth ordering (issue #8): export the key-manager agent socket so the
     // sftp child can use agent keys too (and ForwardAgent when the spec asks
     // for it), unless the policy pins the session credential agent-free.
@@ -364,7 +400,7 @@ pub fn open(
     }
 
     let mut askpass_file = None;
-    if let Some(pw) = password.filter(|p| !p.is_empty()) {
+    if let Some(pw) = askpass_password {
         let (helper, file) = askpass_setup(id, &pw);
         cmd.env("SSH_ASKPASS", &helper);
         cmd.env("SSH_ASKPASS_REQUIRE", "force");
@@ -395,10 +431,7 @@ pub fn open(
     spawn_reader(stdout, out.clone());
     spawn_reader(stderr, err.clone());
 
-    let marker = format!(
-        "NXSFTPEND_{:08x}",
-        rand::random::<u32>()
-    );
+    let marker = format!("NXSFTPEND_{:08x}", rand::random::<u32>());
     let sess = SftpSession {
         child: Mutex::new(child),
         stdin: Mutex::new(stdin),
@@ -500,7 +533,10 @@ pub fn sftp_op(
             let mut warns = Vec::new();
             rm_r(sess, path, *is_dir, &mut warns)?;
             return if warns.is_empty() {
-                Ok(ExecOutput { out: Vec::new(), err: Vec::new() })
+                Ok(ExecOutput {
+                    out: Vec::new(),
+                    err: Vec::new(),
+                })
             } else {
                 Err(warns.join("\n"))
             };
@@ -552,9 +588,7 @@ mod tests {
     fn strips_symlink_target_from_full_path() {
         // Regression: OpenSSH sftp prints full paths for symlinks, and the
         // ` -> target` suffix must never leak into the op path.
-        let e = entry(
-            "lrwxrwxrwx   1 u g 10 Oct  5 12:34 /tmp/dir/link -> /tmp/dir/target",
-        );
+        let e = entry("lrwxrwxrwx   1 u g 10 Oct  5 12:34 /tmp/dir/link -> /tmp/dir/target");
         assert!(e.is_link);
         assert_eq!(e.path, "/tmp/dir/link");
         assert_eq!(e.name, "link");
@@ -574,9 +608,7 @@ mod tests {
     #[test]
     fn names_are_basenames_paths_are_full() {
         // sftp `ls` prints full paths; the parser splits display name + op path.
-        let e = entry(
-            "-rwxr-xr-x   ? sam      sam            90 Oct  4 08:10 /tmp/esp32url.txt",
-        );
+        let e = entry("-rwxr-xr-x   ? sam      sam            90 Oct  4 08:10 /tmp/esp32url.txt");
         assert_eq!(e.name, "esp32url.txt");
         assert_eq!(e.path, "/tmp/esp32url.txt");
         assert!(e.perms.starts_with('-'));
@@ -632,8 +664,8 @@ mod tests {
         };
 
         // --- password/askpass path ---
-        let (sess, cwd) = open("smoke-pass", &spec, Some("NuxSftpTest!2026".into()))
-            .expect("password auth open");
+        let (sess, cwd) =
+            open("smoke-pass", &spec, Some("NuxSftpTest!2026".into())).expect("password auth open");
         assert_eq!(cwd, "/home/nux-sftp-test");
         drive_ops(&sess);
         sess.kill();
@@ -647,22 +679,18 @@ mod tests {
 
     fn drive_ops(sess: &SftpSession) {
         const D: Duration = Duration::from_secs(20);
-        let r = sess
-            .exec("mkdir \"/tmp/nx-smoke\"", D)
-            .expect("mkdir");
+        let r = sess.exec("mkdir \"/tmp/nx-smoke\"", D).expect("mkdir");
         assert!(r.err.is_empty(), "mkdir errors: {:?}", r.err);
         let r = sess
             .exec("put -r \"/etc/hostname\" \"/tmp/nx-smoke/hostname.txt\"", D)
             .expect("put");
         assert!(r.err.is_empty(), "put errors: {:?}", r.err);
-        let r = sess
-            .exec("ls -la \"/tmp/nx-smoke\"", D)
-            .expect("ls");
+        let r = sess.exec("ls -la \"/tmp/nx-smoke\"", D).expect("ls");
         assert!(r.err.is_empty());
         let entries: Vec<SftpEntry> = r.out.iter().filter_map(|l| parse_ls_line(l)).collect();
-        assert!(entries
-            .iter()
-            .any(|e| e.name == "hostname.txt" && e.path == "/tmp/nx-smoke/hostname.txt" && e.size > 0));
+        assert!(entries.iter().any(|e| e.name == "hostname.txt"
+            && e.path == "/tmp/nx-smoke/hostname.txt"
+            && e.size > 0));
         let r = sess
             .exec(
                 "rename \"/tmp/nx-smoke/hostname.txt\" \"/tmp/nx-smoke/renamed.txt\"",
@@ -679,16 +707,24 @@ mod tests {
             .expect("chown numeric");
         assert!(!r.err.is_empty(), "non-root chown should fail");
         let r = sess
-            .exec("get -r \"/tmp/nx-smoke/renamed.txt\" \"/tmp/nx-smoke-fetched.txt\"", D)
+            .exec(
+                "get -r \"/tmp/nx-smoke/renamed.txt\" \"/tmp/nx-smoke-fetched.txt\"",
+                D,
+            )
             .expect("get");
         assert!(r.err.is_empty());
-        assert!(std::fs::read_to_string("/tmp/nx-smoke-fetched.txt")
-            .expect("fetched file")
-            .trim()
-            .len()
-            > 0);
+        assert!(
+            std::fs::read_to_string("/tmp/nx-smoke-fetched.txt")
+                .expect("fetched file")
+                .trim()
+                .len()
+                > 0
+        );
         let r = sess
-            .exec("symlink \"/tmp/nx-smoke/renamed.txt\" \"/tmp/nx-smoke/link\"", D)
+            .exec(
+                "symlink \"/tmp/nx-smoke/renamed.txt\" \"/tmp/nx-smoke/link\"",
+                D,
+            )
             .expect("symlink");
         assert!(r.err.is_empty());
         // recursive delete walk (dir with a file + a symlink)

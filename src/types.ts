@@ -153,17 +153,22 @@ export interface SidebarSettings {
   collapseDelayMs: number;
 }
 
-/** SSH auth ordering preferences (mirrors the Rust `AuthSettings`). */
+/**
+ * SSH auth ordering preferences (mirrors the Rust `AuthSettings`).
+ * Issue #12: the timed fallback was never implemented in the runtime (any
+ * nonzero delay behaved identically), so the setting is now an explicit
+ * boolean — whether agent identities are offered after the stored credential.
+ */
 export interface AuthSettings {
   /**
    * "credential_first" prefers the per-connection key/password, offering
-   * agent identities after the fallback delay; "agent_first" offers agent
-   * identities before the credential; "agent_only" never uses a stored
+   * agent identities after it when fallback is enabled; "agent_first" offers
+   * agent identities before the credential; "agent_only" never uses a stored
    * credential.
    */
   authOrder: "credential_first" | "agent_first" | "agent_only";
-  /** Seconds before agent-identity fallback when a session credential exists. 0 = credential only. */
-  agentFallbackSecs: number;
+  /** Offer ssh-agent identities after the stored credential when "credential_first" is set. */
+  agentFallback: boolean;
 }
 
 /** SFTP commander / file transfer preferences (mirrors the Rust `TransferSettings`). */
@@ -206,7 +211,7 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   terminal: { fontSize: 13, scrollback: 10000, cursorBlink: true, cursorStyle: "block", bellStyle: "visual" },
   transfer: { confirmBeforeOverwrite: true, confirmBeforeDelete: true, defaultLocalPath: "" },
   sidebar: { width: 320, collapseMode: "hover", collapseDelayMs: 0 },
-  auth: { authOrder: "credential_first", agentFallbackSecs: 3 },
+  auth: { authOrder: "credential_first", agentFallback: true },
 };
 
 /** A node in the tileable work-area layout tree. */
