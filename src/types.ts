@@ -205,6 +205,8 @@ export interface UiSettings {
   auth: AuthSettings;
   /** Opt-in: restore open tabs + pane layout on restart (issue #15). */
   restoreTabs: boolean;
+  /** Minimum percentage share of a sibling in a split (gutter drag floor, issue #18). */
+  minPaneSize: number;
 }
 
 export const DEFAULT_UI_SETTINGS: UiSettings = {
@@ -227,6 +229,7 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   sidebar: { width: 320, collapseMode: "hover", collapseDelayMs: 0 },
   auth: { authOrder: "credential_first", agentFallback: true },
   restoreTabs: false,
+  minPaneSize: 15,
 };
 
 /** A node in the tileable work-area layout tree. */

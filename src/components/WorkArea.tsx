@@ -19,6 +19,10 @@ interface WorkAreaProps {
   node: LayoutNode;
   tabs: Tab[];
   activeLeafId: string | null;
+  /** Leaf currently maximized (issue #18); when set only that pane renders full-size. */
+  zoomedLeafId: string | null;
+  /** Minimum share (%) a split sibling keeps during gutter drags (issue #18). */
+  minPaneSize: number;
   onSplit: (leafId: string, dir: "row" | "col") => void;
   onClosePane: (leafId: string) => void;
   onMoveTab: (leafId: string, tabId: string) => void;
@@ -27,6 +31,8 @@ interface WorkAreaProps {
   onResize: (splitId: string, sizes: number[]) => void;
   onSlot: (leafId: string, el: HTMLElement | null) => void;
   onNewShell: () => void;
+  /** Toggle maximize/zoom for a leaf (issue #18). */
+  onToggleZoom: (leafId: string) => void;
 }
 
 function leafTab(tabs: Tab[], node: Extract<LayoutNode, { kind: "leaf" }>): Tab | undefined {
@@ -35,13 +41,20 @@ function leafTab(tabs: Tab[], node: Extract<LayoutNode, { kind: "leaf" }>): Tab 
 
 export function WorkArea(props: WorkAreaProps) {
   const leafCount = collectLeaves(props.node).length;
+
   const render = (node: LayoutNode): React.ReactNode => {
     if (node.kind === "leaf") {
       return <LeafPane {...props} node={node} canClose={leafCount > 1 || node.tabId !== null} />;
     }
     return <SplitPane {...props} node={node} render={render} />;
   };
-  return <div className="tile-area">{render(props.node)}</div>;
+
+  // Maximized pane (issue #18): render only the zoomed leaf, full-size.
+  const zoomed = props.zoomedLeafId
+    ? collectLeaves(props.node).find((l) => l.id === props.zoomedLeafId)
+    : undefined;
+  const tile = zoomed ? <div className="tile-area zoomed">{render(zoomed)}</div> : <div className="tile-area">{render(props.node)}</div>;
+  return tile;
 }
 
 /* ------------------------------- leaf pane ------------------------------- */
@@ -51,11 +64,13 @@ function LeafPane({
   tabs,
   activeLeafId,
   canClose,
+  zoomedLeafId,
   onSplit,
   onClosePane,
   onMoveTab,
   onSlot,
   onNewShell,
+  onToggleZoom,
 }: WorkAreaProps & { node: Extract<LayoutNode, { kind: "leaf" }>; canClose: boolean }) {
   const [over, setOver] = useState(false);
   const tab = leafTab(tabs, node);
@@ -70,7 +85,7 @@ function LeafPane({
 
   return (
     <div
-      className={`pane${active ? " active" : ""}${over ? " drag-over" : ""}`}
+      className={`pane${active ? " active" : ""}${over ? " drag-over" : ""}${zoomedLeafId === node.id ? " zoomed" : ""}`}
       onDragOver={(e) => {
         if (e.dataTransfer.types.includes(DND_TAB)) {
           e.preventDefault();
@@ -99,6 +114,26 @@ function LeafPane({
           )}
         </span>
         <div className="pane-tools">
+          <button
+            className="icon-btn"
+            title={zoomedLeafId === node.id ? "Restore pane (un-maximize)" : "Maximize pane"}
+            aria-label={zoomedLeafId === node.id ? "Restore pane" : "Maximize pane"}
+            onClick={() => onToggleZoom(node.id)}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              {zoomedLeafId === node.id ? (
+                <>
+                  <path d="M9 3H3v6M15 21h6v-6" />
+                  <path d="M3 3l7 7M21 21l-7-7" />
+                </>
+              ) : (
+                <>
+                  <path d="M3 9V3h6M21 15v6h-6" />
+                  <path d="M21 3l-7 7M3 21l7-7" />
+                </>
+              )}
+            </svg>
+          </button>
           <button className="icon-btn" title="Split right" aria-label="Split right" onClick={() => onSplit(node.id, "row")}>
             <Icon name="splitH" size={13} />
           </button>
@@ -134,6 +169,7 @@ function SplitPane({
   node,
   onResize,
   onSplitForTab,
+  minPaneSize,
   render,
 }: WorkAreaProps & { node: Extract<LayoutNode, { kind: "split" }>; render: (n: LayoutNode) => React.ReactNode }) {
   const isRow = node.dir === "row";
@@ -155,7 +191,8 @@ function SplitPane({
       const deltaPx = isRow ? ev.clientX - d.startX : ev.clientY - d.startY;
       const sum = d.sizes[d.gutter] + d.sizes[d.gutter + 1];
       const moved = d.sizes[d.gutter] + (deltaPx / total) * 100;
-      const a = Math.min(Math.max(moved, 15), sum - 15);
+      const floor = Math.min(Math.max(minPaneSize, 5), Math.max(5, sum - minPaneSize));
+      const a = Math.min(Math.max(moved, floor), sum - floor);
       const next = [...d.sizes];
       next[d.gutter] = a;
       next[d.gutter + 1] = sum - a;

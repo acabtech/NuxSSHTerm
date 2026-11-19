@@ -259,10 +259,17 @@ pub struct UiSettings {
     /// (issue #15). Default off for backward-compatible "fresh start".
     #[serde(default = "default_false")]
     pub restore_tabs: bool,
+    /// Minimum share (%) a split sibling keeps during gutter drags (issue #18).
+    #[serde(default = "default_min_pane_size")]
+    pub min_pane_size: u32,
 }
 
 fn default_sidebar() -> SidebarSettings {
     SidebarSettings::default()
+}
+
+fn default_min_pane_size() -> u32 {
+    15
 }
 
 impl Default for UiSettings {
@@ -280,6 +287,7 @@ impl Default for UiSettings {
             sidebar: SidebarSettings::default(),
             auth: AuthSettings::default(),
             restore_tabs: false,
+            min_pane_size: default_min_pane_size(),
         }
     }
 }

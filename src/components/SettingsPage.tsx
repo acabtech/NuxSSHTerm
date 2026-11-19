@@ -145,6 +145,22 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
                 <option value="never">Never collapse (pinned open)</option>
               </select>
             </label>
+            <h3>Work Area</h3>
+            <label>
+              Minimum pane size ({ui.minPaneSize}%)
+              <input
+                type="range"
+                min={5}
+                max={40}
+                step={1}
+                value={ui.minPaneSize}
+                onChange={(e) => onPatch({ minPaneSize: parseInt(e.target.value, 10) })}
+              />
+              <div className="note">
+                Floor for gutter-drag resizing: a sibling never shrinks below this share of its split.
+                Applies to newly started drags.
+              </div>
+            </label>
             {ui.sidebar.collapseMode === "hover" && (
               <label>
                 Collapse delay (
@@ -376,6 +392,7 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
               <div><b>Ctrl+,</b> Settings</div>
               <div><b>Ctrl+T</b> New local shell</div>
               <div><b>Ctrl+W</b> Close tab</div>
+              <div><b>Shift+Ctrl+M</b> Maximize / restore active pane</div>
               <div><b>Shift+Ctrl+C</b> Copy from terminal</div>
               <div><b>Ctrl+V</b> Paste into terminal (Edit menu)</div>
               <div><b>F5–F9</b> Commander copy / move / mkdir / delete / properties</div>

@@ -33,6 +33,7 @@ import { useRevealConfigDir } from "./hooks/useRevealConfigDir";
 import {
   collectLeaves,
   findLeafByTab,
+  hasLeaf,
   moveTabToLeaf,
   neighborLeaf,
   splitLeaf,
@@ -204,7 +205,7 @@ export default function App() {
 
   /* ------------------------------ layout ------------------------------ */
 
-  const { layout, setLayout, split, close: closeLeafId, resize, reconcile } = useLayout();
+  const { layout, setLayout, split, close: closeLeafId, resize, reconcile, zoomedLeafId, toggleZoom, unzoom } = useLayout();
   const [activeLeafId, setActiveLeafId] = useState<string>("l1");
 
   // leaf slot DOM elements, reported by WorkArea via onSlot.
@@ -687,11 +688,16 @@ export default function App() {
       } else if (e.ctrlKey && e.key === ",") {
         e.preventDefault();
         setPage((p) => (p === "settings" ? "workspace" : "settings"));
+      } else if (e.shiftKey && e.ctrlKey && e.key.toLowerCase() === "m") {
+        // Maximize/restore the active pane (issue #18).
+        e.preventDefault();
+        if (zoomedLeafId) unzoom();
+        else if (activeLeafId) toggleZoom(activeLeafId);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openLocalShell, currentTabId, handleCloseTab]);
+  }, [openLocalShell, currentTabId, handleCloseTab, zoomedLeafId, activeLeafId, toggleZoom, unzoom]);
 
   /* ------------------------------ render ---------------------------- */
 
@@ -859,6 +865,8 @@ export default function App() {
               node={layout}
               tabs={tabs}
               activeLeafId={activeLeafId}
+              zoomedLeafId={hasLeaf(layout, zoomedLeafId ?? "") ? zoomedLeafId : null}
+              minPaneSize={ui.minPaneSize}
               onSplit={(leafId, dir) => {
                 split(leafId, dir);
                 setActiveLeafId(leafId);
@@ -869,6 +877,7 @@ export default function App() {
               onResize={resize}
               onSlot={onSlot}
               onNewShell={openLocalShell}
+              onToggleZoom={toggleZoom}
             />
           </main>
         </div>

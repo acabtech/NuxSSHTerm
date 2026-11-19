@@ -85,6 +85,11 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
           typeof (merged as UiSettings).defaultPrivateKey === "string"
             ? (merged as UiSettings).defaultPrivateKey
             : DEFAULT_UI_SETTINGS.defaultPrivateKey;
+        const minPane = Number((merged as UiSettings).minPaneSize);
+        merged.minPaneSize =
+          Number.isFinite(minPane) && minPane >= 5 && minPane <= 40
+            ? Math.round(minPane)
+            : DEFAULT_UI_SETTINGS.minPaneSize;
         setUi(merged);
       } catch {
         // not running under Tauri (vite dev alone) — keep defaults

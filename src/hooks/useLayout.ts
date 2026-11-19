@@ -218,6 +218,8 @@ export function findSplit(node: LayoutNode, splitId: string): LayoutNode | null 
 
 export function useLayout() {
   const [layout, setLayout] = useState<LayoutNode>(DEFAULT_LAYOUT);
+  /** Leaf id of the maximized ("zoomed") pane, or null for the normal tiled view (issue #18). */
+  const [zoomedLeafId, setZoomedLeafId] = useState<string | null>(null);
 
   const split = useCallback((leafId: string, dir: SplitDir) => {
     setLayout((t) => splitLeaf(t, leafId, null, dir));
@@ -229,6 +231,7 @@ export function useLayout() {
 
   const close = useCallback((leafId: string) => {
     setLayout((t) => closeLeaf(t, leafId));
+    setZoomedLeafId((z) => (z === leafId ? null : z));
   }, []);
 
   const resize = useCallback((splitId: string, sizes: number[]) => {
@@ -237,7 +240,15 @@ export function useLayout() {
 
   const reconcile = useCallback((tabIds: string[], preferredLeafId?: string | null) => {
     setLayout((t) => ensureLayout(t, tabIds, preferredLeafId));
+    // The zoomed leaf may have been pruned by reconciliation; validate lazily
+    // in the render path (App checks hasLeaf before honoring zoom).
   }, []);
 
-  return { layout, setLayout, split, move, close, resize, reconcile };
+  const toggleZoom = useCallback((leafId: string) => {
+    setZoomedLeafId((z) => (z === leafId ? null : leafId));
+  }, []);
+
+  const unzoom = useCallback(() => setZoomedLeafId(null), []);
+
+  return { layout, setLayout, split, move, close, resize, reconcile, zoomedLeafId, toggleZoom, unzoom };
 }
