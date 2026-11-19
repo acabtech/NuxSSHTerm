@@ -292,6 +292,52 @@ impl Default for UiSettings {
     }
 }
 
+/// A stored API key (issue #25): metadata plus the SHA-256 hash of the key
+/// plaintext. The plaintext is never persisted — it is shown once when the
+/// key is created.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ApiKeyRecord {
+    /// Stable 8-hex id (first 8 chars of the key hash).
+    pub id: String,
+    /// User-chosen label (unique).
+    pub name: String,
+    /// Hex SHA-256 of the full key plaintext.
+    pub key_hash: String,
+    /// ISO-8601 creation timestamp.
+    pub created: String,
+    /// Reserved for last-use tracking; empty until a consumer verifies it.
+    pub last_used: String,
+}
+
+fn default_api_keys() -> std::collections::HashMap<String, ApiKeyRecord> {
+    std::collections::HashMap::new()
+}
+
+/// ISO-8601 UTC timestamp with second precision (used by key records).
+pub fn now_iso() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // Minimal civil-time conversion (days since epoch → Y-M-D).
+    let days = secs / 86_400;
+    let rem = secs % 86_400;
+    let (h, m, s) = (rem / 3600, rem % 3600 / 60, rem % 60);
+    // Days-based civil algorithm (Howard Hinnant's).
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let mth = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if mth <= 2 { y + 1 } else { y };
+    format!("{y:04}-{mth:02}-{d:02}T{h:02}:{m:02}:{s:02}Z")
+}
+
 /// NuxSSHTerm's own non-secret settings (kept out of the WinSSHTerm XML).
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Settings {
@@ -315,6 +361,10 @@ pub struct Settings {
     /// Modernized UI chrome preferences (v0.5.0).
     #[serde(default)]
     pub ui: UiSettings,
+    /// API keys for the CLI/automation surface (issue #25), keyed by id.
+    /// Only hashes are stored; plaintext keys are shown once at creation.
+    #[serde(default = "default_api_keys")]
+    pub api_keys: std::collections::HashMap<String, ApiKeyRecord>,
 }
 
 pub fn load_settings() -> Settings {
@@ -370,6 +420,48 @@ pub fn set_agent_record(socket: &str, pid: &str) {
     s.agent_socket = socket.to_string();
     s.agent_pid = pid.to_string();
     let _ = save_settings(&s);
+}
+
+/// API key management helpers (issue #25).
+///
+/// The stored map is keyed by id; helper functions keep the mutation
+/// + persist logic in one place so both the GUI and the CLI share it.
+
+/// List all stored API keys, sorted by creation time (then name).
+pub fn api_keys() -> Vec<ApiKeyRecord> {
+    let mut v: Vec<ApiKeyRecord> = load_settings().api_keys.into_values().collect();
+    v.sort_by(|a, b| a.created.cmp(&b.created).then_with(|| a.name.cmp(&b.name)));
+    v
+}
+
+/// True when a key with this label already exists.
+pub fn api_key_name_taken(name: &str) -> bool {
+    load_settings()
+        .api_keys
+        .into_values()
+        .any(|r| r.name == name)
+}
+
+/// Persist a new key record; returns the record (with id/hash, no plaintext).
+pub fn api_key_add(record: ApiKeyRecord) -> Result<ApiKeyRecord, String> {
+    let mut s = load_settings();
+    if s.api_keys.values().any(|r| r.id == record.id || r.name == record.name) {
+        return Err("API key id/name conflict".into());
+    }
+    let id = record.id.clone();
+    s.api_keys.insert(id.clone(), record.clone());
+    save_settings(&s)?;
+    Ok(record)
+}
+
+/// Revoke the key with this id. True when a key was removed.
+pub fn api_key_revoke(id: &str) -> Result<bool, String> {
+    let mut s = load_settings();
+    let removed = s.api_keys.remove(id).is_some();
+    if removed {
+        save_settings(&s)?;
+    }
+    Ok(removed)
 }
 
 /// Path key for a connection: ancestor names joined by "/" (vault scheme).

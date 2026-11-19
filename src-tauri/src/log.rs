@@ -13,11 +13,20 @@ pub fn log_path() -> PathBuf {
 
 /// Append an error line to the log file. Never panics — logging is best-effort.
 pub fn error(context: &str, err: &str) {
+    write_line(context, err);
+}
+
+/// Append an informational line to the log file (best-effort).
+pub fn info(context: &str, message: &str) {
+    write_line(context, message);
+}
+
+fn write_line(context: &str, message: &str) {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs().to_string())
         .unwrap_or_else(|_| "?".into());
-    let line = format!("[{ts}] {context}: {err}\n");
+    let line = format!("[{ts}] {context}: {message}\n");
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(log_path()) {
         let _ = f.write_all(line.as_bytes());
     }

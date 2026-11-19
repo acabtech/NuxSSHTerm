@@ -1,6 +1,7 @@
 //! NuxSSHTerm — Tauri backend.
 
 mod agent;
+mod apikeys;
 mod cli;
 mod importcmd;
 mod kdbx;
@@ -58,6 +59,30 @@ fn save_tree(tree: Vec<Node>) -> Result<(), String> {
 #[tauri::command]
 fn config_dir() -> String {
     store::config_dir().to_string_lossy().to_string()
+}
+
+/// Generate a new API key (issue #25). Returns the plaintext key — shown to
+/// the user exactly once — plus the stored (hash-only) record.
+#[tauri::command]
+fn api_key_create(name: String) -> Result<(String, store::ApiKeyRecord), String> {
+    let key = apikeys::generate(&name)?;
+    let record = store::api_key_add(key.record)?;
+    log::info("api_key_create", &format!("created API key {}", record.id));
+    Ok((key.plaintext, record))
+}
+
+/// List stored API keys (hashes included for id display; never the plaintext).
+#[tauri::command]
+fn api_key_list() -> Vec<store::ApiKeyRecord> {
+    store::api_keys()
+}
+
+/// Revoke an API key by id.
+#[tauri::command]
+fn api_key_revoke(id: String) -> Result<bool, String> {
+    store::api_key_revoke(&id).inspect(|_| {
+        log::info("api_key_revoke", &format!("revoked API key {id}"));
+    })
 }
 
 /// Parse a WinSSHTerm `connections.xml` / exported `.settings` file for preview/import.
@@ -154,6 +179,9 @@ pub fn run() {
             agent::agent_add,
             agent::agent_remove,
             agent::agent_remove_all,
+            api_key_create,
+            api_key_list,
+            api_key_revoke,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

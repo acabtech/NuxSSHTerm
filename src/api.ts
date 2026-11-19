@@ -14,6 +14,22 @@ export const setUiSettings = (ui: UiSettings) => invoke<void>("set_ui_settings",
 // ---- Workspace persistence (issue #15) ----
 export const getWorkspace = () => invoke<unknown | null>("get_workspace");
 export const setWorkspace = (v: unknown) => invoke<void>("set_workspace", { v });
+
+// ---- API keys for programmatic access (issue #25) ----
+export interface ApiKeyRecord {
+  id: string;
+  name: string;
+  keyHash: string;
+  created: string;
+  lastUsed: string;
+}
+export const apiKeysList = () => invoke<ApiKeyRecord[]>("api_key_list");
+export const apiKeyCreate = (name: string) =>
+  invoke<[string, ApiKeyRecord]>("api_key_create", { name }).then(([key, record]) => ({
+    key,
+    record,
+  }));
+export const apiKeyRevoke = (id: string) => invoke<boolean>("api_key_revoke", { id });
 export const importConnectionsFile = (path: string) =>
   invoke<SessionNode[]>("import_connections_file", { path });
 export const exportConnectionsFile = (path: string, tree: SessionNode[]) =>

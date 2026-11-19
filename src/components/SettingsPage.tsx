@@ -3,9 +3,10 @@
 // clearly-labeled simulated sections (per DESIGN.md — don't invent backend
 // behavior). Shortcuts & About closes the loop.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { accentSoftFromHex, normalizeHexColor } from "../lib/color";
 import type { CursorStyle, TransferSettings, UiSettings } from "../types";
+import { apiKeyCreate, apiKeyRevoke, apiKeysList, type ApiKeyRecord } from "../api";
 
 type Section = "appearance" | "terminal" | "conn" | "transfer" | "shortcuts";
 
@@ -343,6 +344,7 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
               Applies to newly opened terminal and SFTP tabs.
             </div>
           </div>
+          <ApiKeysCard />
           </>
         )}
 
@@ -410,6 +412,94 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
           </button>
           {saved && <span className="saved">Saved</span>}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** API key management card (issue #25): create/list/revoke programmatic keys. */
+function ApiKeysCard() {
+  const [keys, setKeys] = useState<ApiKeyRecord[]>([]);
+  const [name, setName] = useState("");
+  const [fresh, setFresh] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  const refresh = () => {
+    apiKeysList()
+      .then(setKeys)
+      .catch((e) => setError(String(e)));
+  };
+  useEffect(refresh, []);
+
+  const create = async () => {
+    setError("");
+    try {
+      const { key } = await apiKeyCreate(name.trim());
+      setFresh(key);
+      setName("");
+      refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const revoke = async (id: string) => {
+    setError("");
+    try {
+      await apiKeyRevoke(id);
+      refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  return (
+    <div className="card">
+      <h3>API Keys</h3>
+      <div className="row" style={{ gap: 8, alignItems: "center" }}>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Key name (e.g. ci-bot)"
+          spellCheck={false}
+          onKeyDown={(e) => e.key === "Enter" && name.trim() && create()}
+          style={{ flex: 1 }}
+        />
+        <button className="btn" onClick={create} disabled={!name.trim()}>
+          Generate key
+        </button>
+      </div>
+      {fresh && (
+        <div className="note">
+          <b>Copy this key now — it is never shown again:</b>
+          <div className="mono" style={{ wordBreak: "break-all", marginTop: 4 }}>{fresh}</div>
+        </div>
+      )}
+      {keys.length === 0 && !fresh && (
+        <div className="note">
+          No API keys yet. Keys let scripts and tools use the headless CLI
+          (<span className="mono">nuxsshterm apikeys …</span>) without touching your vault master password.
+        </div>
+      )}
+      {keys.length > 0 && (
+        <div className="kvs" style={{ marginTop: 8 }}>
+          {keys.map((k) => (
+            <div key={k.id} className="row" style={{ gap: 8, alignItems: "center", justifyContent: "space-between" }}>
+              <span>
+                <b>{k.name}</b> <span className="mono" style={{ opacity: 0.7 }}>{k.id}</span> — created {k.created}
+              </span>
+              <button className="btn ghost" onClick={() => revoke(k.id)}>
+                Revoke
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {error && <div className="note" style={{ color: "var(--danger, #ef4444)" }}>{error}</div>}
+      <div className="note">
+        Keys are stored as SHA-256 hashes only — the plaintext is shown exactly once. Today they identify a consumer
+        for the headless CLI; revoking a key immediately disables it.
       </div>
     </div>
   );

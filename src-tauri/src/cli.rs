@@ -34,8 +34,19 @@ pub enum Command {
     Paths,
     Import { path: String, commit: bool },
     Export { path: String, force: bool },
+    ApiKeys(ApiKeysAction),
     Help,
     Version,
+}
+
+/// `apikeys` subcommand (issue #25).
+pub enum ApiKeysAction {
+    /// Generate a new key for `name`; prints the plaintext exactly once.
+    Create { name: String },
+    /// Print metadata (id/name/created) for all keys — never the plaintext.
+    List,
+    /// Revoke the key by id.
+    Revoke { id: String },
 }
 
 pub enum ParseResult {
@@ -55,6 +66,10 @@ enum Sub {
     Paths,
     Import,
     Export,
+    ApiKeys,
+    ApiKeysCreate,
+    ApiKeysList,
+    ApiKeysRevoke,
 }
 
 /// Parse CLI arguments (argv[1..]). Unknown leading tokens fall back to the
@@ -66,6 +81,7 @@ pub fn parse(args: &[String]) -> ParseResult {
     let mut path: Option<String> = None;
     let mut commit = false;
     let mut force = false;
+    let mut apikeys_verb: Option<Sub> = None;
 
     for a in args {
         match a.as_str() {
@@ -101,6 +117,16 @@ pub fn parse(args: &[String]) -> ParseResult {
             "export" if sub.is_none() => sub = Some(Sub::Export),
             "--yes" if sub == Some(Sub::Import) => commit = true,
             "--force" if sub == Some(Sub::Export) => force = true,
+            "apikeys" if sub.is_none() => sub = Some(Sub::ApiKeys),
+            "create" if sub == Some(Sub::ApiKeys) && apikeys_verb.is_none() => {
+                apikeys_verb = Some(Sub::ApiKeysCreate)
+            }
+            "list" if sub == Some(Sub::ApiKeys) && apikeys_verb.is_none() => {
+                apikeys_verb = Some(Sub::ApiKeysList)
+            }
+            "revoke" if sub == Some(Sub::ApiKeys) && apikeys_verb.is_none() => {
+                apikeys_verb = Some(Sub::ApiKeysRevoke)
+            }
             _ if a.starts_with('-') && sub.is_some() => {
                 return ParseResult::UsageError {
                     message: format!("unknown option: {a}"),
@@ -109,6 +135,20 @@ pub fn parse(args: &[String]) -> ParseResult {
             }
             _ if sub.is_none() => return ParseResult::Gui,
             _ if sub == Some(Sub::List) || sub == Some(Sub::Status) || sub == Some(Sub::Paths) => {
+                return ParseResult::UsageError {
+                    message: format!("unexpected argument: {a}"),
+                    json,
+                };
+            }
+            // apikeys create/revoke take exactly one positional argument.
+            _ if matches!(
+                apikeys_verb,
+                Some(Sub::ApiKeysCreate) | Some(Sub::ApiKeysRevoke)
+            ) && path.is_none() =>
+            {
+                path = Some(a.to_string())
+            }
+            _ if sub == Some(Sub::ApiKeys) => {
                 return ParseResult::UsageError {
                     message: format!("unexpected argument: {a}"),
                     json,
@@ -138,6 +178,32 @@ pub fn parse(args: &[String]) -> ParseResult {
             json,
             command: Command::Paths,
         }),
+        Some(Sub::ApiKeys) => match (apikeys_verb, path) {
+            (Some(Sub::ApiKeysList), _) => ParseResult::Cli(Invocation {
+                json,
+                command: Command::ApiKeys(ApiKeysAction::List),
+            }),
+            (Some(Sub::ApiKeysCreate), Some(name)) => ParseResult::Cli(Invocation {
+                json,
+                command: Command::ApiKeys(ApiKeysAction::Create { name }),
+            }),
+            (Some(Sub::ApiKeysRevoke), Some(id)) => ParseResult::Cli(Invocation {
+                json,
+                command: Command::ApiKeys(ApiKeysAction::Revoke { id }),
+            }),
+            (Some(Sub::ApiKeysCreate), None) => ParseResult::UsageError {
+                message: "apikeys create requires a <name>".into(),
+                json,
+            },
+            (Some(Sub::ApiKeysRevoke), None) => ParseResult::UsageError {
+                message: "apikeys revoke requires a key <id>".into(),
+                json,
+            },
+            _ => ParseResult::UsageError {
+                message: "apikeys requires create|list|revoke".into(),
+                json,
+            },
+        },
         Some(Sub::Import) => match path {
             Some(path) => ParseResult::Cli(Invocation {
                 json,
@@ -158,6 +224,9 @@ pub fn parse(args: &[String]) -> ParseResult {
                 json,
             },
         },
+        // apikeys create/list/revoke are matched inside the Some(Sub::ApiKeys) arm.
+        Some(Sub::ApiKeys) | Some(Sub::ApiKeysCreate) | Some(Sub::ApiKeysList)
+        | Some(Sub::ApiKeysRevoke) => unreachable!("handled by the ApiKeys arm above"),
     }
 }
 
@@ -204,6 +273,89 @@ pub fn execute(inv: &Invocation) -> i32 {
         Command::Paths => cmd_paths(inv.json),
         Command::Import { path, commit } => cmd_import(path, *commit, inv.json),
         Command::Export { path, force } => cmd_export(path, *force, inv.json),
+        Command::ApiKeys(action) => match action {
+            ApiKeysAction::List => cmd_apikeys_list(inv.json),
+            ApiKeysAction::Create { name } => cmd_apikeys_create(name, inv.json),
+            ApiKeysAction::Revoke { id } => cmd_apikeys_revoke(id, inv.json),
+        },
+    }
+}
+
+fn cmd_apikeys_list(json: bool) -> i32 {
+    let keys = store::api_keys();
+    if json {
+        let items: Vec<_> = keys
+            .iter()
+            .map(|k| json!({ "id": k.id, "name": k.name, "created": k.created }))
+            .collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&items).unwrap_or_else(|_| "[]".into())
+        );
+    } else if keys.is_empty() {
+        println!("no API keys — create one: nuxsshterm apikeys create <name>");
+    } else {
+        for k in &keys {
+            println!("{}\t{}\tcreated {}", k.id, k.name, k.created);
+        }
+    }
+    EXIT_OK
+}
+
+fn cmd_apikeys_create(name: &str, json: bool) -> i32 {
+    let generated = match crate::apikeys::generate(name).and_then(|g| {
+        store::api_key_add(g.record).map(|record| (g.plaintext, record))
+    }) {
+        Ok(ok) => ok,
+        Err(e) => {
+            print_error(json, &e);
+            return EXIT_ERROR;
+        }
+    };
+    let (plaintext, record) = generated;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({
+                "id": record.id,
+                "name": record.name,
+                "created": record.created,
+                "key": plaintext,
+                "warning": "store this key now — it is never shown again",
+            }))
+            .unwrap_or_else(|_| "{}".into())
+        );
+    } else {
+        println!("API key created: {} ({})", record.name, record.id);
+        println!();
+        println!("{plaintext}");
+        println!();
+        println!("Store this key now — it is never shown again.");
+    }
+    EXIT_OK
+}
+
+fn cmd_apikeys_revoke(id: &str, json: bool) -> i32 {
+    match store::api_key_revoke(id) {
+        Ok(true) => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({ "revoked": id })).unwrap_or_else(|_| "{}".into())
+                );
+            } else {
+                println!("revoked API key {id}");
+            }
+            EXIT_OK
+        }
+        Ok(false) => {
+            print_error(json, &format!("no API key with id {id:?}"));
+            EXIT_ERROR
+        }
+        Err(e) => {
+            print_error(json, &e);
+            EXIT_ERROR
+        }
     }
 }
 
@@ -224,6 +376,11 @@ import <file>     Parse a sessions file (WinSSHTerm XML/backup, PuTTY .reg,\n   
 --yes         Commit the import: replaces the stored session tree\n    \
 export <file>     Export the session tree as WinSSHTerm XML\n        \
 --force       Overwrite an existing target file\n\
+\n\
+API KEYS (issue #25):\n    \
+apikeys create <name>  Generate a new key; the plaintext is printed once\n    \
+apikeys list           Print id/name/created metadata (no secrets)\n    \
+apikeys revoke <id>    Revoke the key with this id\n\
 \n\
 FLAGS:\n    \
 --json            Machine-readable JSON output on stdout\n    \
@@ -246,7 +403,10 @@ EXAMPLES:\n    \
 nuxsshterm list --json\n    \
 nuxsshterm import /tmp/connections.xml           # preview only\n    \
 nuxsshterm import /tmp/connections.xml --yes     # replace stored tree\n    \
-nuxsshterm export /tmp/export.xml\n",
+nuxsshterm export /tmp/export.xml\n\
+nuxsshterm apikeys create ci-bot\n\
+nuxsshterm apikeys list --json\n\
+nuxsshterm apikeys revoke 1a2b3c4d\n",
         env!("CARGO_PKG_VERSION")
     );
 }
@@ -590,5 +750,49 @@ mod tests {
             parse(&s(&["list", "--yes"])),
             ParseResult::UsageError { .. }
         ));
+    }
+
+    #[test]
+    fn apikeys_verb_is_required() {
+        assert!(matches!(
+            parse(&s(&["apikeys"])),
+            ParseResult::UsageError { .. }
+        ));
+    }
+
+    #[test]
+    fn apikeys_create_and_revoke_take_exactly_one_argument() {
+        match parse(&s(&["apikeys", "create", "ci"])) {
+            ParseResult::Cli(inv) => {
+                assert!(matches!(inv.command, Command::ApiKeys(ApiKeysAction::Create { .. })))
+            }
+            _ => panic!("expected apikeys create"),
+        }
+        match parse(&s(&["apikeys", "revoke", "1a2b3c4d", "--json"])) {
+            ParseResult::Cli(inv) => {
+                assert!(inv.json);
+                assert!(matches!(inv.command, Command::ApiKeys(ApiKeysAction::Revoke { .. })))
+            }
+            _ => panic!("expected apikeys revoke"),
+        }
+        assert!(matches!(
+            parse(&s(&["apikeys", "create"])),
+            ParseResult::UsageError { .. }
+        ));
+        assert!(matches!(
+            parse(&s(&["apikeys", "create", "a", "b"])),
+            ParseResult::UsageError { .. }
+        ));
+    }
+
+    #[test]
+    fn apikeys_list_standalone() {
+        match parse(&s(&["apikeys", "list", "--json"])) {
+            ParseResult::Cli(inv) => {
+                assert!(inv.json);
+                assert!(matches!(inv.command, Command::ApiKeys(ApiKeysAction::List)))
+            }
+            _ => panic!("expected apikeys list"),
+        }
     }
 }
