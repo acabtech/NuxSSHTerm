@@ -314,6 +314,9 @@ pub fn get_ui_settings() -> UiSettings {
 pub fn set_ui_settings(ui: &UiSettings) -> Result<(), String> {
     let mut s = load_settings();
     s.ui = ui.clone();
+    // Clamp sanity-sensitive values regardless of what the caller sent.
+    s.ui.sidebar.width = s.ui.sidebar.width.clamp(200, 560);
+    s.ui.sidebar.collapse_delay_ms = s.ui.sidebar.collapse_delay_ms.min(20_000);
     save_settings(&s)
 }
 

@@ -149,7 +149,7 @@ export interface SidebarSettings {
    * pointer leaves the rail; "never" keeps the sidebar pinned open.
    */
   collapseMode: "hover" | "never";
-  /** Hover-out collapse delay in ms (0 = collapse immediately). */
+  /** Hover-out collapse delay in ms (0 = immediate; allowed 0–20000, 1s steps). */
   collapseDelayMs: number;
 }
 

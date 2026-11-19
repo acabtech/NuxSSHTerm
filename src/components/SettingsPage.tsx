@@ -147,16 +147,20 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
             </label>
             {ui.sidebar.collapseMode === "hover" && (
               <label>
-                Collapse delay ({ui.sidebar.collapseDelayMs}ms)
+                Collapse delay (
+                {ui.sidebar.collapseDelayMs % 1000 === 0
+                  ? `${ui.sidebar.collapseDelayMs / 1000}s`
+                  : `${ui.sidebar.collapseDelayMs}ms`}
+                )
                 <input
                   type="range"
                   min={0}
-                  max={2000}
-                  step={100}
+                  max={20000}
+                  step={1000}
                   value={ui.sidebar.collapseDelayMs}
                   onChange={(e) => onPatchSidebar({ collapseDelayMs: parseInt(e.target.value, 10) })}
                 />
-                <div className="note">0 collapses immediately on pointer leave; up to 2s grace.</div>
+                <div className="note">0 collapses immediately on pointer leave; up to 20s grace (1s steps).</div>
               </label>
             )}
           </div>
