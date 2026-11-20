@@ -87,6 +87,11 @@ export const vaultPutPassword = (path: string, password: string) =>
   invoke<void>("vault_put_password", { path, password });
 export const vaultRemovePassword = (path: string) =>
   invoke<void>("vault_remove_password", { path });
+/** Fetch one vault password entry by path key (undefined when absent). */
+export const vaultGetPassword = async (path: string): Promise<string | undefined> => {
+  const map = await vaultGetPasswords();
+  return map[path];
+};
 
 export const ptyOpen = (
   id: string,

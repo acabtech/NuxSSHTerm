@@ -87,6 +87,58 @@ export function pathKey(tree: SessionNode[], path: number[]): string {
   return names.join("/");
 }
 
+/**
+ * All current vault path keys (one per connection) in the tree. Used to avoid
+ * deleting a still-live entry when migrating keys after a rename (issue #32).
+ */
+export function vaultKeys(tree: SessionNode[]): Set<string> {
+  const keys = new Set<string>();
+  const walk = (nodes: SessionNode[], prefix: string[]) => {
+    for (const n of nodes) {
+      const p = [...prefix, n.name];
+      if (n.type === "Connection") keys.add(p.join("/"));
+      walk(n.children, p);
+    }
+  };
+  walk(tree, []);
+  return keys;
+}
+
+/**
+ * Vault-key migration pairs after a rename (issue #32): walks the pre- and
+ * post-update trees in lockstep (an update only patches fields, never
+ * structure) and returns (oldKey, newKey) for every connection whose name path
+ * changed, so its vault password entry can be moved to the post-rename key.
+ * A folder rename yields one pair per descendant connection.
+ */
+export function passwordKeyMigrations(
+  oldTree: SessionNode[],
+  newTree: SessionNode[],
+): Array<[string, string]> {
+  const pairs: Array<[string, string]> = [];
+  const walk = (
+    a: SessionNode | undefined,
+    b: SessionNode,
+    oldPrefix: string[],
+    newPrefix: string[],
+  ) => {
+    const oldPath = [...oldPrefix, a?.name ?? b.name];
+    const newPath = [...newPrefix, b.name];
+    if (b.type === "Connection") {
+      const oldKey = oldPath.join("/");
+      const newKey = newPath.join("/");
+      if (oldKey !== newKey) pairs.push([oldKey, newKey]);
+    }
+    for (let i = 0; i < b.children.length; i++) {
+      walk(a?.children[i], b.children[i], oldPath, newPath);
+    }
+  };
+  for (let i = 0; i < newTree.length; i++) {
+    walk(oldTree[i], newTree[i], [], []);
+  }
+  return pairs;
+}
+
 /** Return a new tree with connection passwords filled from a vault map (path key -> password). */
 export function applyPasswords(
   tree: SessionNode[],

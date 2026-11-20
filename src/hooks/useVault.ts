@@ -5,11 +5,11 @@ import {
   vaultInit,
   vaultLock,
   vaultPutPassword,
+  vaultRemovePassword,
   vaultReset,
   vaultUnlock,
   type VaultStatus,
 } from "../api";
-
 /**
  * Owns the encrypted-vault lifecycle: whether it is initialized and unlocked,
  * plus the operations to create/unlock/lock/reset it and to read/write session
@@ -58,5 +58,25 @@ export function useVault(notify: (msg: string, kind?: "info" | "success" | "erro
     await vaultPutPassword(path, password);
   }, []);
 
-  return { status, checking, init, unlock, lock, reset, getPasswords, putPassword };
+  const removePassword = useCallback(async (path: string) => {
+    await vaultRemovePassword(path);
+  }, []);
+
+  const getPassword = useCallback(
+    async (path: string) => (await vaultGetPasswords())[path],
+    [],
+  );
+
+  return {
+    status,
+    checking,
+    init,
+    unlock,
+    lock,
+    reset,
+    getPasswords,
+    putPassword,
+    removePassword,
+    getPassword,
+  };
 }
