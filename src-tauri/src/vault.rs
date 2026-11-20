@@ -123,13 +123,49 @@ fn decrypt(data: &[u8], master: &[u8]) -> Result<(VaultBlob, [u8; KEY_LEN], [u8;
     Ok((blob, key, salt))
 }
 
+/// Atomically write `bytes` to `path`: create a temp file in the same
+/// directory (mode 0600 on Unix), write, fsync, then rename over `path`.
+/// A crash or power loss mid-write can then never truncate/corrupt the
+/// existing file — at worst a stale temp file is left behind.
+fn atomic_write(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .ok_or_else(|| "vault path has no parent directory".to_string())?;
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .ok_or_else(|| "invalid vault path".to_string())?;
+    let tmp = dir.join(format!(".{file_name}.{}.tmp", std::process::id()));
+
+    let write = || -> Result<(), String> {
+        let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            f.set_permissions(std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| e.to_string())?;
+        }
+        f.write_all(bytes).map_err(|e| e.to_string())?;
+        f.sync_all().map_err(|e| e.to_string())?;
+        Ok(())
+    };
+    if let Err(e) = write() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+}
+
 /// Persist the current in-memory blob to disk using the retained key + salt.
 fn save(state: &VaultState) -> Result<(), String> {
     let inner = state.0.lock().unwrap();
     let key = inner.key.ok_or("vault is locked")?;
     let salt = inner.salt.ok_or("vault is locked")?;
     let bytes = encrypt_with_key(&inner.blob, &key, &salt)?;
-    std::fs::write(vault_path(), bytes).map_err(|e| e.to_string())
+    atomic_write(&vault_path(), &bytes)
 }
 
 /// Load + decrypt the vault into memory, marking it unlocked.
@@ -168,7 +204,7 @@ pub fn vault_init(state: State<'_, VaultState>, master: String) -> Result<(), St
     let key = derive_key(master.as_bytes(), &salt)?;
     let blob = VaultBlob::default();
     let bytes = encrypt_with_key(&blob, &key, &salt)?;
-    std::fs::write(vault_path(), bytes).map_err(|e| e.to_string())?;
+    atomic_write(&vault_path(), &bytes)?;
     let mut inner = state.0.lock().unwrap();
     inner.blob = blob;
     inner.key = Some(key);
