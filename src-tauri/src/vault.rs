@@ -233,7 +233,13 @@ pub fn vault_lock(state: State<'_, VaultState>) -> Result<(), String> {
 /// Forgot password: wipe the vault (passwords lost, connections kept).
 #[tauri::command]
 pub fn vault_reset(state: State<'_, VaultState>) -> Result<(), String> {
-    let _ = std::fs::remove_file(vault_path());
+    // Never report success while the encrypted vault is still on disk (#42).
+    // A missing file is already the desired end state.
+    match std::fs::remove_file(vault_path()) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("failed to delete vault file: {e}")),
+    }
     let mut inner = state.0.lock().unwrap();
     inner.blob = VaultBlob::default();
     if let Some(mut k) = inner.key.take() {

@@ -378,7 +378,47 @@ pub fn load_settings() -> Settings {
 
 pub fn save_settings(settings: &Settings) -> Result<(), String> {
     let bytes = serde_json::to_vec(settings).map_err(|e| e.to_string())?;
-    std::fs::write(settings_path(), bytes).map_err(|e| e.to_string())
+    atomic_write(&settings_path(), &bytes)
+}
+
+/// Write `bytes` to `path` via a sibling temp file + `rename` (atomic on the
+/// same filesystem). A crash mid-write can then never truncate the existing
+/// file; at worst a stale temp file is left behind (issue #37).
+fn atomic_write(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .ok_or_else(|| "store path has no parent directory".to_string())?;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .ok_or_else(|| "invalid store path".to_string())?;
+    let tmp = dir.join(format!(
+        ".{name}.{}.{}.tmp",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
+
+    let result = (|| -> Result<(), String> {
+        let mut f = std::fs::File::create(&tmp)
+            .map_err(|e| format!("failed to create {}: {e}", tmp.display()))?;
+        f.write_all(bytes)
+            .map_err(|e| format!("failed to write {}: {e}", tmp.display()))?;
+        f.sync_all()
+            .map_err(|e| format!("failed to sync {}: {e}", tmp.display()))?;
+        drop(f);
+        std::fs::rename(&tmp, path)
+            .map_err(|e| format!("failed to replace {}: {e}", path.display()))
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
 }
 
 /// The persisted dedicated-agent record (socket, pid). Empty when unset.
@@ -539,7 +579,11 @@ pub fn load_tree() -> Vec<Node> {
 
 pub fn save_tree(nodes: &[Node]) -> Result<(), String> {
     // Never persist plaintext passwords — strip them before writing to disk.
-    std::fs::write(connections_path(), export_xml(nodes)).map_err(|e| e.to_string())?;
+    // The write is atomic: load_tree() silently degrades to an empty tree on a
+    // parse failure, so a torn connections.xml would be overwritten with that
+    // empty tree on the next save and lose every session permanently (#37).
+    let xml = export_xml(nodes);
+    atomic_write(&connections_path(), xml.as_bytes())?;
     // Persist UI-local ForwardAgent/favorite flags in settings.json
     // (not the WinSSHTerm XML).
     let mut s = load_settings();
@@ -571,6 +615,25 @@ pub fn import_connections_xml(xml_text: &str) -> Result<Vec<Node>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atomic_write_replaces_existing_content() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+
+        let path = std::env::temp_dir().join(format!(
+            "nx-atomic-write-test-{}-{}.tmp",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        atomic_write(&path, b"old").unwrap();
+        atomic_write(&path, b"new").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+
+        std::fs::remove_file(&path).unwrap();
+    }
 
     #[test]
     fn export_xml_never_contains_passwords() {

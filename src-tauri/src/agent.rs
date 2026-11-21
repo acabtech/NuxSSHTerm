@@ -266,7 +266,7 @@ pub fn agent_add(
 
     let mut askpass_file: Option<PathBuf> = None;
     if let Some(pw) = passphrase.filter(|p| !p.is_empty()) {
-        let (helper, file) = askpass_setup(&key, &pw);
+        let (helper, file) = askpass_setup(&key, &pw)?;
         cmd.env("SSH_ASKPASS", &helper);
         cmd.env("SSH_ASKPASS_REQUIRE", "force");
         // Any non-empty DISPLAY satisfies ssh's askpass engagement check.
@@ -362,17 +362,19 @@ pub fn agent_remove_all() -> Result<(), String> {
 
 /* ------------------------------ helpers ------------------------------ */
 
-fn askpass_setup(id: &str, passphrase: &str) -> (PathBuf, PathBuf) {
+fn askpass_setup(id: &str, passphrase: &str) -> Result<(PathBuf, PathBuf), String> {
     let dir = crate::store::config_dir();
     let helper = dir.join("agent-askpass.sh");
     if !helper.exists() {
         let _ = std::fs::write(&helper, "#!/bin/sh\ncat \"${NX_AGENT_ASKPASS_FILE}\"\n");
         let _ = std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o700));
     }
-    let file = dir.join(format!(".agent-askpass-{}", id.replace("/", "_").replace("\\", "_")));
-    let _ = std::fs::write(&file, passphrase);
-    let _ = std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o600));
-    (helper, file)
+    let file = dir.join(format!(
+        ".agent-askpass-{}",
+        id.replace("/", "_").replace("\\", "_")
+    ));
+    crate::pty::write_secret_file(&file, passphrase)?;
+    Ok((helper, file))
 }
 
 /// Run `ssh-add` with the given args + socket, returning (stdout, stderr, exit code).
