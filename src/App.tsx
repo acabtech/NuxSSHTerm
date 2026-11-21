@@ -50,6 +50,7 @@ import {
   insertAt,
   passwordKeyMigrations,
   pathKey,
+  removeAt,
   updateAt,
   vaultKeys,
 } from "./lib/tree";
@@ -524,6 +525,37 @@ export default function App() {
     ],
   );
 
+  // Deleting a session (or a folder containing sessions) must also drop its
+  // vault entries, otherwise the orphaned credentials are silently inherited
+  // by any later session that lands on the same name path (issue #38). Compare
+  // the key sets before/after removal so a key still used elsewhere in the
+  // tree is never deleted, and skip cleanup while the vault is locked.
+  const handleDeleteSelected = useCallback(() => {
+    if (!selectedPath || !getAt(tree, selectedPath)) return;
+    if (vaultStatus.unlocked) {
+      const before = vaultKeys(tree);
+      const after = vaultKeys(removeAt(tree, selectedPath));
+      const orphaned = [...before].filter((key) => !after.has(key));
+      if (orphaned.length > 0) {
+        void Promise.all(
+          orphaned.map((key) =>
+            vaultRemovePassword(key).catch((e) =>
+              notify(`Vault cleanup failed for "${key}": ${String(e)}`, "error"),
+            ),
+          ),
+        );
+      }
+    }
+    deleteSelected();
+  }, [
+    selectedPath,
+    tree,
+    vaultStatus.unlocked,
+    vaultRemovePassword,
+    deleteSelected,
+    notify,
+  ]);
+
   // Auto-lock the encrypted vault after a period of inactivity while unlocked.
   useEffect(() => {
     const minutes = ui.vaultAutoLockMinutes;
@@ -985,7 +1017,7 @@ export default function App() {
           <div className="menu-item" onClick={() => { setCtx(null); duplicateSelected(); }}>
             <span>Duplicate</span>
           </div>
-          <div className="menu-item" onClick={() => { setCtx(null); deleteSelected(); }}>
+          <div className="menu-item" onClick={() => { setCtx(null); handleDeleteSelected(); }}>
             <span>Delete</span>
           </div>
           <div className="menu-sep" />
