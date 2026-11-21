@@ -86,7 +86,8 @@ fn build(
         if !e.pass.is_empty() {
             passwords.insert(format!("{group_key}/{title}"), e.pass.clone());
         }
-        node.children.push(Node::connection(&title, &e.host, &e.user, 22));
+        node.children
+            .push(Node::connection(&title, &e.host, &e.user, 22));
     }
     for sub in &group.groups {
         build(&mut node.children, sub, &group_key, warnings, passwords);
@@ -126,7 +127,11 @@ pub fn parse_xml(text: &str) -> Result<ParsedExport, String> {
                     continue;
                 }
                 if tag == "Group" {
-                    groups.push(Group { name: "".into(), entries: Vec::new(), groups: Vec::new() });
+                    groups.push(Group {
+                        name: "".into(),
+                        entries: Vec::new(),
+                        groups: Vec::new(),
+                    });
                 } else if tag == "Entry" {
                     entry_fields = Some(HashMap::new());
                 }
@@ -152,9 +157,10 @@ pub fn parse_xml(text: &str) -> Result<ParsedExport, String> {
                     }
                     "Value" => {
                         if let Some(k) = pending_key.take()
-                            && let Some(ref mut fields) = entry_fields {
-                                fields.insert(k, text_buf.clone());
-                            }
+                            && let Some(ref mut fields) = entry_fields
+                        {
+                            fields.insert(k, text_buf.clone());
+                        }
                     }
                     "Name" => {
                         // KeePass group titles; entry titles come via String blocks.
@@ -164,19 +170,20 @@ pub fn parse_xml(text: &str) -> Result<ParsedExport, String> {
                     }
                     "Entry" => {
                         if let Some(fields) = entry_fields.take()
-                            && let Some(g) = groups.last_mut() {
-                                let mut title = field(&fields, "Title");
-                                if title.is_empty() {
-                                    title = "Unnamed".into();
-                                }
-                                let e = Entry {
-                                    title,
-                                    host: field(&fields, "URL"),
-                                    user: field(&fields, "UserName"),
-                                    pass: field(&fields, "Password"),
-                                };
-                                g.entries.push(e);
+                            && let Some(g) = groups.last_mut()
+                        {
+                            let mut title = field(&fields, "Title");
+                            if title.is_empty() {
+                                title = "Unnamed".into();
                             }
+                            let e = Entry {
+                                title,
+                                host: field(&fields, "URL"),
+                                user: field(&fields, "UserName"),
+                                pass: field(&fields, "Password"),
+                            };
+                            g.entries.push(e);
+                        }
                     }
                     "Group" => {
                         if let Some(g) = groups.pop() {
@@ -272,8 +279,14 @@ mod tests {
         assert_eq!(staging.children[0].hostname, "staging.example");
 
         // passwords keyed by the same path convention as the frontend pathKey()
-        assert_eq!(passwords.get("Servers/DB Prod"), Some(&"s3cret".to_string()));
-        assert_eq!(passwords.get("Servers/Staging/API"), Some(&"deploy-pass".to_string()));
+        assert_eq!(
+            passwords.get("Servers/DB Prod"),
+            Some(&"s3cret".to_string())
+        );
+        assert_eq!(
+            passwords.get("Servers/Staging/API"),
+            Some(&"deploy-pass".to_string())
+        );
 
         // an entry without a URL is skipped (not imported, no password)
         assert!(has_warning(&warnings, "WiFi Notes"));

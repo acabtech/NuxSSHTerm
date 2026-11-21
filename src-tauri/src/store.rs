@@ -378,7 +378,38 @@ pub fn load_settings() -> Settings {
 
 pub fn save_settings(settings: &Settings) -> Result<(), String> {
     let bytes = serde_json::to_vec(settings).map_err(|e| e.to_string())?;
-    std::fs::write(settings_path(), bytes).map_err(|e| e.to_string())
+    atomic_write(&settings_path(), &bytes)
+}
+
+/// Atomically write `bytes` to `path`: write a sibling temp file, fsync, then
+/// rename over `path` (rename is atomic on the same filesystem). A crash or
+/// power loss mid-write can then never truncate/corrupt the existing file —
+/// at worst a stale temp file is left behind (issue #37; mirrors the helper
+/// in vault.rs).
+fn atomic_write(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+
+    let dir = path
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .ok_or_else(|| "store path has no parent directory".to_string())?;
+    let file_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .ok_or_else(|| "invalid store path".to_string())?;
+    let tmp = dir.join(format!(".{file_name}.{}.tmp", std::process::id()));
+
+    let write = || -> Result<(), String> {
+        let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        f.write_all(bytes).map_err(|e| e.to_string())?;
+        f.sync_all().map_err(|e| e.to_string())?;
+        Ok(())
+    };
+    if let Err(e) = write() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
 /// The persisted dedicated-agent record (socket, pid). Empty when unset.
@@ -445,7 +476,10 @@ pub fn api_key_name_taken(name: &str) -> bool {
 /// Persist a new key record; returns the record (with id/hash, no plaintext).
 pub fn api_key_add(record: ApiKeyRecord) -> Result<ApiKeyRecord, String> {
     let mut s = load_settings();
-    if s.api_keys.values().any(|r| r.id == record.id || r.name == record.name) {
+    if s.api_keys
+        .values()
+        .any(|r| r.id == record.id || r.name == record.name)
+    {
         return Err("API key id/name conflict".into());
     }
     let id = record.id.clone();
@@ -539,7 +573,12 @@ pub fn load_tree() -> Vec<Node> {
 
 pub fn save_tree(nodes: &[Node]) -> Result<(), String> {
     // Never persist plaintext passwords — strip them before writing to disk.
-    std::fs::write(connections_path(), export_xml(nodes)).map_err(|e| e.to_string())?;
+    // Written atomically (temp file + rename, issue #37): a crash mid-write
+    // must never truncate connections.xml, since load_tree() silently returns
+    // an empty tree on a parse failure and the next save would make the loss
+    // permanent.
+    atomic_write(&connections_path(), export_xml(nodes).as_bytes())?;
+
     // Persist UI-local ForwardAgent/favorite flags in settings.json
     // (not the WinSSHTerm XML).
     let mut s = load_settings();

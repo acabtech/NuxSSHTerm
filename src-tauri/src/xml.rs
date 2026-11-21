@@ -1,7 +1,7 @@
 //! Reader/writer for the WinSSHTerm session-tree XML (`connections.xml` format),
 //! plus the compressed `<WinSSHTerm_Backup>` format (base64(gzip(xml)) chunks).
 
-use crate::model::{Node, KIND_CONTAINER};
+use crate::model::{KIND_CONTAINER, Node};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as B64;
 use flate2::bufread::GzDecoder;
@@ -156,11 +156,13 @@ pub fn parse_backup_envelope(xml: &str) -> Result<BackupEnvelope, String> {
     // The payload is normally a protobuf envelope; some older/simple payloads
     // are the connections.xml document directly (no key file in that case).
     let (inner, key_file) = if looks_like_xml(&plain) {
-        (strip_bom(&String::from_utf8_lossy(&plain)).to_string(), None)
+        (
+            strip_bom(&String::from_utf8_lossy(&plain)).to_string(),
+            None,
+        )
     } else {
-        let field1 = protobuf_field(&plain, 1).ok_or_else(|| {
-            "backup payload is not a recognised WinSSHTerm envelope".to_string()
-        })?;
+        let field1 = protobuf_field(&plain, 1)
+            .ok_or_else(|| "backup payload is not a recognised WinSSHTerm envelope".to_string())?;
         let xml_bytes = B64
             .decode(field1)
             .map_err(|e| format!("backup session data is not valid base64: {e}"))?;
@@ -367,7 +369,11 @@ pPort=\"{}\" pUser=\"{}\" pTelnetCmd=\"{}\" />\n",
             esc(&node.launch_tool),
             esc(&node.x11),
             esc(&node.cf_prot),
-            if node.proxy_enabled { "enabled" } else { "disabled" },
+            if node.proxy_enabled {
+                "enabled"
+            } else {
+                "disabled"
+            },
             esc(&node.proxy_type),
             esc(&node.proxy_host),
             esc(&node.proxy_port),
@@ -379,7 +385,8 @@ pPort=\"{}\" pUser=\"{}\" pTelnetCmd=\"{}\" />\n",
 
 /// Serialise a node tree into WinSSHTerm `connections.xml`.
 pub fn write_connections(nodes: &[Node]) -> String {
-    let mut out = String::from("<?xml version='1.0' encoding='utf-8'?>\n<WinSSHTerm Version='1'>\n");
+    let mut out =
+        String::from("<?xml version='1.0' encoding='utf-8'?>\n<WinSSHTerm Version='1'>\n");
     for n in nodes {
         write_node(&mut out, n, 1);
     }
@@ -391,8 +398,8 @@ pub fn write_connections(nodes: &[Node]) -> String {
 mod tests {
     use super::*;
     use crate::model::Node;
-    use flate2::write::GzEncoder;
     use flate2::Compression;
+    use flate2::write::GzEncoder;
 
     #[test]
     fn round_trip_preserves_tree() {
@@ -595,7 +602,10 @@ mod tests {
         assert_eq!(decode_container_name("Dev Hosts"), "Dev Hosts");
         assert_eq!(decode_container_name("ACAB"), "ACAB");
         assert_eq!(decode_container_name("CDA"), "CDA");
-        assert_eq!(decode_container_name(&B64.encode("Proxmox Hosts")), "Proxmox Hosts");
+        assert_eq!(
+            decode_container_name(&B64.encode("Proxmox Hosts")),
+            "Proxmox Hosts"
+        );
     }
 
     /// Optional end-to-end check against a real WinSSHTerm export. Set

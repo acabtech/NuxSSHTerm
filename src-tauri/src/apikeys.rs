@@ -82,8 +82,8 @@ fn hash_record(plaintext: &str, name: &str) -> ApiKeyRecord {
 }
 
 fn base64_url(bytes: &[u8]) -> String {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     URL_SAFE_NO_PAD.encode(bytes)
 }
 

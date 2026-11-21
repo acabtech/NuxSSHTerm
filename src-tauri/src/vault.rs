@@ -104,7 +104,10 @@ fn encrypt_with_key(
 }
 
 /// Decrypt an on-disk layout back into the blob, the derived key, and its salt.
-fn decrypt(data: &[u8], master: &[u8]) -> Result<(VaultBlob, [u8; KEY_LEN], [u8; SALT_LEN]), String> {
+fn decrypt(
+    data: &[u8],
+    master: &[u8],
+) -> Result<(VaultBlob, [u8; KEY_LEN], [u8; SALT_LEN]), String> {
     let header = MAGIC.len() + SALT_LEN + NONCE_LEN;
     if data.len() < header || &data[..MAGIC.len()] != MAGIC {
         return Err("not a NuxSSHTerm vault file".into());
@@ -233,7 +236,14 @@ pub fn vault_lock(state: State<'_, VaultState>) -> Result<(), String> {
 /// Forgot password: wipe the vault (passwords lost, connections kept).
 #[tauri::command]
 pub fn vault_reset(state: State<'_, VaultState>) -> Result<(), String> {
-    let _ = std::fs::remove_file(vault_path());
+    // Fail loudly when the on-disk vault could not be destroyed (issue #42):
+    // returning Ok while the encrypted passwords remain on disk would defeat
+    // the whole purpose of the wipe. A missing file is fine (already gone).
+    if let Err(e) = std::fs::remove_file(vault_path())
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        return Err(format!("failed to delete vault file: {e}"));
+    }
     let mut inner = state.0.lock().unwrap();
     inner.blob = VaultBlob::default();
     if let Some(mut k) = inner.key.take() {
@@ -291,9 +301,7 @@ pub fn vault_remove_password(state: State<'_, VaultState>, path: String) -> Resu
 
 /// Return all recorded `.ppk` → `.pem` conversions (original path -> converted path).
 #[tauri::command]
-pub fn vault_get_ppk_map(
-    state: State<'_, VaultState>,
-) -> Result<HashMap<String, String>, String> {
+pub fn vault_get_ppk_map(state: State<'_, VaultState>) -> Result<HashMap<String, String>, String> {
     let inner = state.0.lock().unwrap();
     if !inner.unlocked() {
         return Err("vault is locked".into());
@@ -342,7 +350,8 @@ mod tests {
         let bytes = encrypt_with_key(&blob, &key, &salt).unwrap();
         let (out, _, _) = decrypt(&bytes, master).unwrap();
         assert_eq!(
-            out.sessions_with_passwords.get("Proxmox Hosts/Elitedesk One"),
+            out.sessions_with_passwords
+                .get("Proxmox Hosts/Elitedesk One"),
             Some(&"s3cret".to_string())
         );
     }

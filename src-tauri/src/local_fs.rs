@@ -29,7 +29,9 @@ pub fn perms_str(meta: &std::fs::Metadata) -> String {
     } else {
         '-'
     });
-    let bits = [0o400, 0o200, 0o100, 0o040, 0o020, 0o010, 0o004, 0o002, 0o001];
+    let bits = [
+        0o400, 0o200, 0o100, 0o040, 0o020, 0o010, 0o004, 0o002, 0o001,
+    ];
     let chars = ['r', 'w', 'x', 'r', 'w', 'x', 'r', 'w', 'x'];
     for (b, c) in bits.iter().zip(chars.iter()) {
         out.push(if mode & b != 0 { *c } else { '-' });
