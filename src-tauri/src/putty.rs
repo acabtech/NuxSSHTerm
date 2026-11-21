@@ -49,13 +49,15 @@ fn unescape_path(raw: &str) -> String {
     let mut out: Vec<u8> = Vec::new();
     let mut i = 0;
     while i < src.len() {
-        if src[i] == b'%' && i + 2 < src.len()
+        if src[i] == b'%'
+            && i + 2 < src.len()
             && let Some(h) = hex_val(src[i + 1])
-            && let Some(l) = hex_val(src[i + 2]) {
-                out.push((h << 4) | l);
-                i += 3;
-                continue;
-            }
+            && let Some(l) = hex_val(src[i + 2])
+        {
+            out.push((h << 4) | l);
+            i += 3;
+            continue;
+        }
         out.push(src[i]);
         i += 1;
     }
@@ -72,19 +74,40 @@ fn unescape_reg_value(raw: &str) -> String {
         if b == b'\\' && i + 1 < src.len() {
             let n = src[i + 1];
             match n {
-                b'n' => { out.push(b'\n'); i += 2; continue; }
-                b'r' => { out.push(b'\r'); i += 2; continue; }
-                b't' => { out.push(b'\t'); i += 2; continue; }
-                b'\\' => { out.push(b'\\'); i += 2; continue; }
-                b'"' => { out.push(b'"'); i += 2; continue; }
+                b'n' => {
+                    out.push(b'\n');
+                    i += 2;
+                    continue;
+                }
+                b'r' => {
+                    out.push(b'\r');
+                    i += 2;
+                    continue;
+                }
+                b't' => {
+                    out.push(b'\t');
+                    i += 2;
+                    continue;
+                }
+                b'\\' => {
+                    out.push(b'\\');
+                    i += 2;
+                    continue;
+                }
+                b'"' => {
+                    out.push(b'"');
+                    i += 2;
+                    continue;
+                }
                 b'x' => {
                     if i + 3 < src.len()
                         && let Some(h) = hex_val(src[i + 2])
-                        && let Some(l) = hex_val(src[i + 3]) {
-                            out.push((h << 4) | l);
-                            i += 4;
-                            continue;
-                        }
+                        && let Some(l) = hex_val(src[i + 3])
+                    {
+                        out.push((h << 4) | l);
+                        i += 4;
+                        continue;
+                    }
                     out.push(b'\\');
                     out.push(n);
                     i += 2;
@@ -228,7 +251,10 @@ fn make_raw(raw_path: &str) -> RawSession {
             path.push(seg.to_string());
         }
     }
-    RawSession { path, values: HashMap::new() }
+    RawSession {
+        path,
+        values: HashMap::new(),
+    }
 }
 
 fn flush(sessions: &mut Vec<RawSession>, current: &mut Option<RawSession>) {
@@ -259,16 +285,19 @@ pub fn import_text(text: &str) -> (Vec<Node>, Vec<String>) {
                 parts.push(seg.to_string());
             }
             if let Some(k) = sessions_marker_idx(&parts)
-                && parts.len() > k + 1 {
-                    current = Some(make_raw(&join_from(&parts, k + 1)));
-                } else {
-                    current = None;
-                }
+                && parts.len() > k + 1
+            {
+                current = Some(make_raw(&join_from(&parts, k + 1)));
+            } else {
+                current = None;
+            }
             continue;
         }
 
         // regedit value line: "key"="value"
-        if l.starts_with("\"") && let Some((k, v)) = parse_quoted_line(l) {
+        if l.starts_with("\"")
+            && let Some((k, v)) = parse_quoted_line(l)
+        {
             if let Some(ref mut s) = current {
                 s.values.insert(k, v);
             }
@@ -482,7 +511,8 @@ mod tests {
 Session\\Beleaf\\Prod%20DB\\HostName=10.9.9.9\n\
 Session\\Beleaf\\Prod%20DB\\PortNumber=5432\n\
 Session\\Beleaf\\Prod%20DB\\UserName=postgres\n\
-Session\\Beleaf\\Prod%20DB\\PublicKeyFile=/home/user/.ssh/id_ed25519\n".to_string()
+Session\\Beleaf\\Prod%20DB\\PublicKeyFile=/home/user/.ssh/id_ed25519\n"
+            .to_string()
     }
 
     fn has_warning(warnings: &[String], needle: &str) -> bool {
@@ -555,7 +585,10 @@ Session\\Beleaf\\Prod%20DB\\PublicKeyFile=/home/user/.ssh/id_ed25519\n".to_strin
 
     #[test]
     fn reg_value_escapes() {
-        assert_eq!(unescape_reg_value("a\\tb\\n\\\"q\\\"\\\\z"), "a\tb\n\"q\"\\z");
+        assert_eq!(
+            unescape_reg_value("a\\tb\\n\\\"q\\\"\\\\z"),
+            "a\tb\n\"q\"\\z"
+        );
         assert_eq!(unescape_reg_value("\\x41"), "A");
     }
 
@@ -585,6 +618,7 @@ Session\\Beleaf\\Prod%20DB\\PublicKeyFile=/home/user/.ssh/id_ed25519\n".to_strin
             "[HKEY_CURRENT_USER\\Software\\SimonTatham\\PuTTY\\Sessions\\weird]\n\"HostName\"=\"10.1.1.1\"\n\"ProxyMethod\"=\"4\"\n",
         );
         assert_eq!(nodes.len(), 1);
-        assert!(!nodes[0].proxy_enabled);        assert!(has_warning(&warnings, "ProxyMethod 4"));
+        assert!(!nodes[0].proxy_enabled);
+        assert!(has_warning(&warnings, "ProxyMethod 4"));
     }
 }

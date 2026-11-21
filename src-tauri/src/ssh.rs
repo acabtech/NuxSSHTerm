@@ -63,10 +63,11 @@ impl LaunchSpec {
             args.push("ForwardAgent=yes".into());
         }
         if self.proxy_enabled
-            && let Some(pc) = self.proxy_command() {
-                args.push("-o".into());
-                args.push(format!("ProxyCommand={pc}"));
-            }
+            && let Some(pc) = self.proxy_command()
+        {
+            args.push("-o".into());
+            args.push(format!("ProxyCommand={pc}"));
+        }
         for extra in &self.extra_args {
             if !extra.trim().is_empty() {
                 args.push(extra.clone());
@@ -121,10 +122,11 @@ impl LaunchSpec {
             args.push("ForwardAgent=yes".into());
         }
         if self.proxy_enabled
-            && let Some(pc) = self.proxy_command() {
-                args.push("-o".into());
-                args.push(format!("ProxyCommand={pc}"));
-            }
+            && let Some(pc) = self.proxy_command()
+        {
+            args.push("-o".into());
+            args.push(format!("ProxyCommand={pc}"));
+        }
         for extra in &self.extra_args {
             if !extra.trim().is_empty() {
                 args.push(extra.clone());
@@ -170,7 +172,15 @@ mod tests {
         };
         assert_eq!(
             s.ssh_args(),
-            vec!["-p", "2222", "-l", "sam", "-i", "/home/user/.ssh/id_ed25519", "h"]
+            vec![
+                "-p",
+                "2222",
+                "-l",
+                "sam",
+                "-i",
+                "/home/user/.ssh/id_ed25519",
+                "h"
+            ]
         );
     }
 
@@ -234,7 +244,15 @@ mod tests {
         };
         assert_eq!(
             s.sftp_args(),
-            vec!["-P", "2222", "-o", "User=sam", "-i", "/home/user/.ssh/id_ed25519", "h"]
+            vec![
+                "-P",
+                "2222",
+                "-o",
+                "User=sam",
+                "-i",
+                "/home/user/.ssh/id_ed25519",
+                "h"
+            ]
         );
     }
 

@@ -60,17 +60,17 @@ pub struct Node {
 
     // ---- UI-local (not persisted to WinSSHTerm XML) ----
     #[serde(default)]
-    pub login_dir: String,       // Login Dir
+    pub login_dir: String, // Login Dir
     #[serde(default)]
-    pub login_cmds: String,      // Login Cmds
+    pub login_cmds: String, // Login Cmds
     #[serde(default)]
-    pub cmdline_args: String,    // Cmd-line Args
+    pub cmdline_args: String, // Cmd-line Args
     #[serde(default)]
-    pub env_color: String,       // Env Color
+    pub env_color: String, // Env Color
     #[serde(default)]
-    pub custom_id: String,       // Custom Id
+    pub custom_id: String, // Custom Id
     #[serde(default)]
-    pub custom_type: String,     // Custom Type
+    pub custom_type: String, // Custom Type
     /// Forward the ssh-agent to the remote host (`-o ForwardAgent=yes`).
     /// UI-local (Phase 4): persisted in settings.json, not in WinSSHTerm XML.
     #[serde(default)]

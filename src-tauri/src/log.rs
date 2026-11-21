@@ -27,7 +27,11 @@ fn write_line(context: &str, message: &str) {
         .map(|d| d.as_secs().to_string())
         .unwrap_or_else(|_| "?".into());
     let line = format!("[{ts}] {context}: {message}\n");
-    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(log_path()) {
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path())
+    {
         let _ = f.write_all(line.as_bytes());
     }
 }

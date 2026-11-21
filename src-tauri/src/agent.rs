@@ -76,11 +76,7 @@ pub struct AddKeyResult {
 
 fn env_socket() -> Option<String> {
     let v = std::env::var("SSH_AUTH_SOCK").unwrap_or_default();
-    if v.is_empty() {
-        None
-    } else {
-        Some(v)
-    }
+    if v.is_empty() { None } else { Some(v) }
 }
 
 /// The persisted socket path, but only when the socket file actually exists.
@@ -115,7 +111,11 @@ fn socket_alive(sock: &str) -> bool {
 /// `SSH_AUTH_SOCK` the socket is simply not exported.
 pub fn session_socket() -> Option<String> {
     if let Some(sock) = env_socket() {
-        return if socket_alive(&sock) { Some(sock) } else { None };
+        return if socket_alive(&sock) {
+            Some(sock)
+        } else {
+            None
+        };
     }
     if let Some(sock) = persisted_socket_file() {
         if socket_alive(&sock) {
@@ -201,7 +201,9 @@ pub fn agent_start(state: State<'_, AgentState>) -> Result<AgentStatus, String> 
 
     let mut cmd = std::process::Command::new("ssh-agent");
     cmd.arg("-a").arg(&sock_str);
-    let out = cmd.output().map_err(|e| format!("could not start ssh-agent: {e}"))?;
+    let out = cmd
+        .output()
+        .map_err(|e| format!("could not start ssh-agent: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).into_owned();
         let err2 = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -213,7 +215,9 @@ pub fn agent_start(state: State<'_, AgentState>) -> Result<AgentStatus, String> 
         return Err("ssh-agent started but its PID could not be parsed".into());
     }
     if !sock.exists() {
-        return Err(format!("ssh-agent started but socket was not created: {sock_str}"));
+        return Err(format!(
+            "ssh-agent started but socket was not created: {sock_str}"
+        ));
     }
 
     crate::store::set_agent_record(&sock_str, &pid);
@@ -266,7 +270,7 @@ pub fn agent_add(
 
     let mut askpass_file: Option<PathBuf> = None;
     if let Some(pw) = passphrase.filter(|p| !p.is_empty()) {
-        let (helper, file) = askpass_setup(&key, &pw);
+        let (helper, file) = askpass_setup(&key, &pw)?;
         cmd.env("SSH_ASKPASS", &helper);
         cmd.env("SSH_ASKPASS_REQUIRE", "force");
         // Any non-empty DISPLAY satisfies ssh's askpass engagement check.
@@ -275,7 +279,9 @@ pub fn agent_add(
         askpass_file = Some(file);
     }
 
-    let out = cmd.output().map_err(|e| format!("could not run ssh-add: {e}"))?;
+    let out = cmd
+        .output()
+        .map_err(|e| format!("could not run ssh-add: {e}"))?;
     if let Some(f) = askpass_file {
         let _ = std::fs::remove_file(&f);
     }
@@ -294,7 +300,8 @@ pub fn agent_add(
             message: "Key added".into(),
         })
     } else if err.to_ascii_lowercase().contains("passphrase")
-        || err2.to_ascii_lowercase().contains("passphrase") {
+        || err2.to_ascii_lowercase().contains("passphrase")
+    {
         Ok(AddKeyResult {
             added: false,
             needs_passphrase: true,
@@ -362,17 +369,21 @@ pub fn agent_remove_all() -> Result<(), String> {
 
 /* ------------------------------ helpers ------------------------------ */
 
-fn askpass_setup(id: &str, passphrase: &str) -> (PathBuf, PathBuf) {
+fn askpass_setup(id: &str, passphrase: &str) -> Result<(PathBuf, PathBuf), String> {
     let dir = crate::store::config_dir();
     let helper = dir.join("agent-askpass.sh");
     if !helper.exists() {
         let _ = std::fs::write(&helper, "#!/bin/sh\ncat \"${NX_AGENT_ASKPASS_FILE}\"\n");
-        let _ = std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o700));
+        let _ =
+            std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o700));
     }
-    let file = dir.join(format!(".agent-askpass-{}", id.replace("/", "_").replace("\\", "_")));
-    let _ = std::fs::write(&file, passphrase);
-    let _ = std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o600));
-    (helper, file)
+    let file = dir.join(format!(
+        ".agent-askpass-{}",
+        id.replace("/", "_").replace("\\", "_")
+    ));
+    // Issue #39: 0600 from creation, errors propagated (see pty::write_secret_file).
+    crate::pty::write_secret_file(&file, passphrase)?;
+    Ok((helper, file))
 }
 
 /// Run `ssh-add` with the given args + socket, returning (stdout, stderr, exit code).
@@ -402,7 +413,8 @@ pub fn parse_add_l(out: &str, err: &str, code: i32) -> (bool, Vec<AgentKey>) {
     if code != 0
         && (combined.contains("Could not open a connection")
             || combined.contains("Error connecting to agent")
-            || combined.contains("No such file or directory")) {
+            || combined.contains("No such file or directory"))
+    {
         return (false, Vec::new());
     }
     let mut keys: Vec<AgentKey> = Vec::new();
@@ -428,7 +440,13 @@ pub fn parse_add_l(out: &str, err: &str, code: i32) -> (bool, Vec<AgentKey>) {
                 comment = tok[2..].join(" ");
             }
         }
-        keys.push(AgentKey { bits, fingerprint, comment, key_type, source_path: "".into() });
+        keys.push(AgentKey {
+            bits,
+            fingerprint,
+            comment,
+            key_type,
+            source_path: "".into(),
+        });
     }
     (true, keys)
 }
@@ -486,7 +504,10 @@ mod tests {
         assert!(alive);
         assert_eq!(keys.len(), 1);
         assert_eq!(keys[0].bits, "256");
-        assert_eq!(keys[0].fingerprint, "SHA256:abcdefghijklmnopqrstuvwxyz0123456789A");
+        assert_eq!(
+            keys[0].fingerprint,
+            "SHA256:abcdefghijklmnopqrstuvwxyz0123456789A"
+        );
         assert_eq!(keys[0].comment, "sam@box");
         assert_eq!(keys[0].key_type, "ED25519");
     }
@@ -509,10 +530,18 @@ mod tests {
 
     #[test]
     fn dead_agent_is_not_alive() {
-        let (alive, keys) = parse_add_l("", "Could not open a connection to your authentication agent.\n", 2);
+        let (alive, keys) = parse_add_l(
+            "",
+            "Could not open a connection to your authentication agent.\n",
+            2,
+        );
         assert!(!alive);
         assert!(keys.is_empty());
-        let (alive2, _) = parse_add_l("", "Error connecting to agent: No such file or directory\n", 2);
+        let (alive2, _) = parse_add_l(
+            "",
+            "Error connecting to agent: No such file or directory\n",
+            2,
+        );
         assert!(!alive2);
     }
 
@@ -560,14 +589,22 @@ mod tests {
         kg.arg("-t").arg("ed25519").arg("-N").arg("");
         kg.arg("-f").arg(&key.to_string_lossy().to_string());
         let kgout = kg.output().expect("ssh-keygen");
-        assert!(kgout.status.success(), "ssh-keygen: {}", String::from_utf8_lossy(&kgout.stderr).into_owned());
+        assert!(
+            kgout.status.success(),
+            "ssh-keygen: {}",
+            String::from_utf8_lossy(&kgout.stderr).into_owned()
+        );
 
         // Add it with the socket env set.
         let mut add = std::process::Command::new("ssh-add");
         add.arg(&key.to_string_lossy().to_string());
         add.env("SSH_AUTH_SOCK", &sock_str);
         let aout = add.output().expect("ssh-add");
-        assert!(aout.status.success(), "add: {}", String::from_utf8_lossy(&aout.stderr).into_owned());
+        assert!(
+            aout.status.success(),
+            "add: {}",
+            String::from_utf8_lossy(&aout.stderr).into_owned()
+        );
 
         // List → 1 key.
         let (out2, err2, code2) = run_ssh_add(vec!["-l".to_string()], sock_str.clone());
@@ -577,7 +614,10 @@ mod tests {
         assert_eq!(keys[0].key_type, "ED25519");
 
         // Remove one by path → empty.
-        let (_, _, rc) = run_ssh_add(vec!["-d".to_string(), key.to_string_lossy().to_string()], sock_str.clone());
+        let (_, _, rc) = run_ssh_add(
+            vec!["-d".to_string(), key.to_string_lossy().to_string()],
+            sock_str.clone(),
+        );
         assert_eq!(rc, 0);
         let (out3, err3, code3) = run_ssh_add(vec!["-l".to_string()], sock_str.clone());
         let (alive3, keys3) = parse_add_l(&out3, &err3, code3);
@@ -594,7 +634,11 @@ mod tests {
         kill.env("SSH_AUTH_SOCK", &sock_str);
         kill.env("SSH_AGENT_PID", &pid);
         let kout = kill.output().expect("ssh-agent -k");
-        assert!(kout.status.success(), "kill: {}", String::from_utf8_lossy(&kout.stderr).into_owned());
+        assert!(
+            kout.status.success(),
+            "kill: {}",
+            String::from_utf8_lossy(&kout.stderr).into_owned()
+        );
         std::thread::sleep(Duration::from_millis(300));
         assert!(!sock.exists(), "socket removed after -k");
 

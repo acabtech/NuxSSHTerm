@@ -225,7 +225,9 @@ pub fn parse(args: &[String]) -> ParseResult {
             },
         },
         // apikeys create/list/revoke are matched inside the Some(Sub::ApiKeys) arm.
-        Some(Sub::ApiKeys) | Some(Sub::ApiKeysCreate) | Some(Sub::ApiKeysList)
+        Some(Sub::ApiKeys)
+        | Some(Sub::ApiKeysCreate)
+        | Some(Sub::ApiKeysList)
         | Some(Sub::ApiKeysRevoke) => unreachable!("handled by the ApiKeys arm above"),
     }
 }
@@ -303,9 +305,9 @@ fn cmd_apikeys_list(json: bool) -> i32 {
 }
 
 fn cmd_apikeys_create(name: &str, json: bool) -> i32 {
-    let generated = match crate::apikeys::generate(name).and_then(|g| {
-        store::api_key_add(g.record).map(|record| (g.plaintext, record))
-    }) {
+    let generated = match crate::apikeys::generate(name)
+        .and_then(|g| store::api_key_add(g.record).map(|record| (g.plaintext, record)))
+    {
         Ok(ok) => ok,
         Err(e) => {
             print_error(json, &e);
@@ -341,7 +343,8 @@ fn cmd_apikeys_revoke(id: &str, json: bool) -> i32 {
             if json {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&json!({ "revoked": id })).unwrap_or_else(|_| "{}".into())
+                    serde_json::to_string_pretty(&json!({ "revoked": id }))
+                        .unwrap_or_else(|_| "{}".into())
                 );
             } else {
                 println!("revoked API key {id}");
@@ -764,14 +767,20 @@ mod tests {
     fn apikeys_create_and_revoke_take_exactly_one_argument() {
         match parse(&s(&["apikeys", "create", "ci"])) {
             ParseResult::Cli(inv) => {
-                assert!(matches!(inv.command, Command::ApiKeys(ApiKeysAction::Create { .. })))
+                assert!(matches!(
+                    inv.command,
+                    Command::ApiKeys(ApiKeysAction::Create { .. })
+                ))
             }
             _ => panic!("expected apikeys create"),
         }
         match parse(&s(&["apikeys", "revoke", "1a2b3c4d", "--json"])) {
             ParseResult::Cli(inv) => {
                 assert!(inv.json);
-                assert!(matches!(inv.command, Command::ApiKeys(ApiKeysAction::Revoke { .. })))
+                assert!(matches!(
+                    inv.command,
+                    Command::ApiKeys(ApiKeysAction::Revoke { .. })
+                ))
             }
             _ => panic!("expected apikeys revoke"),
         }
