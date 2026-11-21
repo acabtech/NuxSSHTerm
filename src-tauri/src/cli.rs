@@ -35,8 +35,24 @@ pub enum Command {
     Import { path: String, commit: bool },
     Export { path: String, force: bool },
     ApiKeys(ApiKeysAction),
+    /// Opt-in integrations / automation (issues #22, #23).
+    Vault(VaultAction),
+    Omarchy(OmarchyAction),
     Help,
     Version,
+}
+
+/// Vault automation: verify the configured API key without printing secrets.
+pub enum VaultAction {
+    Status,
+    Unlock,
+}
+
+/// Omarchy menu publisher controls.
+pub enum OmarchyAction {
+    Status,
+    Sync,
+    Disable,
 }
 
 /// `apikeys` subcommand (issue #25).
@@ -51,8 +67,9 @@ pub enum ApiKeysAction {
 
 pub enum ParseResult {
     Cli(Invocation),
-    /// Not a CLI invocation — start the GUI (unchanged behavior).
-    Gui,
+    /// Not a CLI invocation — start the GUI. `session` is the stable path key
+    /// written by Omarchy menu rows (`--session <path>`).
+    Gui { session: Option<String> },
     UsageError {
         message: String,
         json: bool,
@@ -70,6 +87,13 @@ enum Sub {
     ApiKeysCreate,
     ApiKeysList,
     ApiKeysRevoke,
+    Vault,
+    VaultStatus,
+    VaultUnlock,
+    Omarchy,
+    OmarchyStatus,
+    OmarchySync,
+    OmarchyDisable,
 }
 
 /// Parse CLI arguments (argv[1..]). Unknown leading tokens fall back to the
@@ -82,10 +106,26 @@ pub fn parse(args: &[String]) -> ParseResult {
     let mut commit = false;
     let mut force = false;
     let mut apikeys_verb: Option<Sub> = None;
+    let mut vault_verb: Option<Sub> = None;
+    let mut omarchy_verb: Option<Sub> = None;
+    let mut session: Option<String> = None;
+    let mut awaiting_session = false;
 
     for a in args {
+        if awaiting_session {
+            session = Some(a.to_string());
+            awaiting_session = false;
+            continue;
+        }
         match a.as_str() {
             "--json" => json = true,
+            "--session" if sub.is_none() => awaiting_session = true,
+            "--session" => {
+                return ParseResult::UsageError {
+                    message: "--session only applies when starting the GUI".into(),
+                    json,
+                };
+            }
             "-h" | "--help" => {
                 return ParseResult::Cli(Invocation {
                     json,
@@ -118,6 +158,23 @@ pub fn parse(args: &[String]) -> ParseResult {
             "--yes" if sub == Some(Sub::Import) => commit = true,
             "--force" if sub == Some(Sub::Export) => force = true,
             "apikeys" if sub.is_none() => sub = Some(Sub::ApiKeys),
+            "vault" if sub.is_none() => sub = Some(Sub::Vault),
+            "status" if sub == Some(Sub::Vault) && vault_verb.is_none() => {
+                vault_verb = Some(Sub::VaultStatus)
+            }
+            "unlock" if sub == Some(Sub::Vault) && vault_verb.is_none() => {
+                vault_verb = Some(Sub::VaultUnlock)
+            }
+            "omarchy" if sub.is_none() => sub = Some(Sub::Omarchy),
+            "status" if sub == Some(Sub::Omarchy) && omarchy_verb.is_none() => {
+                omarchy_verb = Some(Sub::OmarchyStatus)
+            }
+            "sync" if sub == Some(Sub::Omarchy) && omarchy_verb.is_none() => {
+                omarchy_verb = Some(Sub::OmarchySync)
+            }
+            "disable" if sub == Some(Sub::Omarchy) && omarchy_verb.is_none() => {
+                omarchy_verb = Some(Sub::OmarchyDisable)
+            }
             "create" if sub == Some(Sub::ApiKeys) && apikeys_verb.is_none() => {
                 apikeys_verb = Some(Sub::ApiKeysCreate)
             }
@@ -133,7 +190,7 @@ pub fn parse(args: &[String]) -> ParseResult {
                     json,
                 };
             }
-            _ if sub.is_none() => return ParseResult::Gui,
+            _ if sub.is_none() => return ParseResult::Gui { session: None },
             _ if sub == Some(Sub::List) || sub == Some(Sub::Status) || sub == Some(Sub::Paths) => {
                 return ParseResult::UsageError {
                     message: format!("unexpected argument: {a}"),
@@ -154,6 +211,12 @@ pub fn parse(args: &[String]) -> ParseResult {
                     json,
                 };
             }
+            _ if matches!(sub, Some(Sub::Vault) | Some(Sub::Omarchy)) => {
+                return ParseResult::UsageError {
+                    message: format!("unexpected argument: {a}"),
+                    json,
+                };
+            }
             _ if path.is_none() => path = Some(a.to_string()),
             _ => {
                 return ParseResult::UsageError {
@@ -164,8 +227,21 @@ pub fn parse(args: &[String]) -> ParseResult {
         }
     }
 
+    if awaiting_session {
+        return ParseResult::UsageError {
+            message: "--session requires a <path>".into(),
+            json,
+        };
+    }
+    if session.is_some() && sub.is_some() {
+        return ParseResult::UsageError {
+            message: "--session only applies when starting the GUI".into(),
+            json,
+        };
+    }
+
     match sub {
-        None => ParseResult::Gui, // flags only → GUI (preserve current behavior)
+        None => ParseResult::Gui { session }, // flags only → GUI (preserve current behavior)
         Some(Sub::List) => ParseResult::Cli(Invocation {
             json,
             command: Command::List,
@@ -204,6 +280,40 @@ pub fn parse(args: &[String]) -> ParseResult {
                 json,
             },
         },
+        Some(Sub::Vault) => match vault_verb {
+            Some(Sub::VaultStatus) => ParseResult::Cli(Invocation {
+                json,
+                command: Command::Vault(VaultAction::Status),
+            }),
+            Some(Sub::VaultUnlock) => ParseResult::Cli(Invocation {
+                json,
+                command: Command::Vault(VaultAction::Unlock),
+            }),
+            None => ParseResult::UsageError {
+                message: "vault requires status|unlock".into(),
+                json,
+            },
+            _ => unreachable!("vault verbs handled above"),
+        },
+        Some(Sub::Omarchy) => match omarchy_verb {
+            Some(Sub::OmarchyStatus) => ParseResult::Cli(Invocation {
+                json,
+                command: Command::Omarchy(OmarchyAction::Status),
+            }),
+            Some(Sub::OmarchySync) => ParseResult::Cli(Invocation {
+                json,
+                command: Command::Omarchy(OmarchyAction::Sync),
+            }),
+            Some(Sub::OmarchyDisable) => ParseResult::Cli(Invocation {
+                json,
+                command: Command::Omarchy(OmarchyAction::Disable),
+            }),
+            None => ParseResult::UsageError {
+                message: "omarchy requires status|sync|disable".into(),
+                json,
+            },
+            _ => unreachable!("omarchy verbs handled above"),
+        },
         Some(Sub::Import) => match path {
             Some(path) => ParseResult::Cli(Invocation {
                 json,
@@ -224,9 +334,8 @@ pub fn parse(args: &[String]) -> ParseResult {
                 json,
             },
         },
-        // apikeys create/list/revoke are matched inside the Some(Sub::ApiKeys) arm.
-        Some(Sub::ApiKeys) | Some(Sub::ApiKeysCreate) | Some(Sub::ApiKeysList)
-        | Some(Sub::ApiKeysRevoke) => unreachable!("handled by the ApiKeys arm above"),
+        // Sub-verbs are matched inside their parent arms above.
+        _ => unreachable!("sub-verbs handled by their parent arms"),
     }
 }
 
@@ -278,6 +387,8 @@ pub fn execute(inv: &Invocation) -> i32 {
             ApiKeysAction::Create { name } => cmd_apikeys_create(name, inv.json),
             ApiKeysAction::Revoke { id } => cmd_apikeys_revoke(id, inv.json),
         },
+        Command::Vault(action) => cmd_vault(action, inv.json),
+        Command::Omarchy(action) => cmd_omarchy(action, inv.json),
     }
 }
 
@@ -336,7 +447,11 @@ fn cmd_apikeys_create(name: &str, json: bool) -> i32 {
 }
 
 fn cmd_apikeys_revoke(id: &str, json: bool) -> i32 {
-    match store::api_key_revoke(id) {
+    match store::api_key_revoke(id).inspect(|removed| {
+        if *removed {
+            crate::vault::on_api_key_revoked(id);
+        }
+    }) {
         Ok(true) => {
             if json {
                 println!(
@@ -355,6 +470,133 @@ fn cmd_apikeys_revoke(id: &str, json: bool) -> i32 {
         Err(e) => {
             print_error(json, &e);
             EXIT_ERROR
+        }
+    }
+}
+
+fn cmd_vault(action: &VaultAction, json: bool) -> i32 {
+    match action {
+        VaultAction::Status => {
+            let status = crate::vault::auto_unlock_status();
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&status).unwrap_or_else(|_| "{}".into())
+                );
+            } else {
+                println!(
+                    "auto-unlock: {}",
+                    if status.configured {
+                        "configured"
+                    } else {
+                        "not configured"
+                    }
+                );
+                if status.configured {
+                    println!(
+                        "key: {} ({})",
+                        status.key_id,
+                        if status.key_registered {
+                            "registered"
+                        } else {
+                            "revoked — auto-unlock will fail"
+                        }
+                    );
+                }
+            }
+            EXIT_OK
+        }
+        VaultAction::Unlock => match crate::vault::auto_unlock_headless() {
+            Ok(id) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&json!({
+                            "unlocked": true,
+                            "keyId": id,
+                            "note": "credentials verified in memory only; nothing persisted",
+                        }))
+                        .unwrap_or_else(|_| "{}".into())
+                    );
+                } else {
+                    println!("auto-unlock credentials valid ({id}); no secrets printed");
+                }
+                EXIT_OK
+            }
+            Err(e) => {
+                print_error(json, &e);
+                EXIT_ERROR
+            }
+        },
+    }
+}
+
+fn cmd_omarchy(action: &OmarchyAction, json: bool) -> i32 {
+    match action {
+        OmarchyAction::Status => {
+            let status = crate::omarchy::status();
+            if json {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&status).unwrap_or_else(|_| "{}".into())
+                );
+            } else {
+                println!(
+                    "Omarchy: {}",
+                    if status.available { "detected" } else { "not detected" }
+                );
+                println!("menu: {}", status.menu_path);
+                println!("published favorites: {}", status.published);
+            }
+            EXIT_OK
+        }
+        OmarchyAction::Sync => {
+            if !crate::omarchy::available() {
+                print_warning(
+                    json,
+                    "Omarchy config not found — nothing to do (feature is a no-op here)",
+                );
+            }
+            match crate::omarchy::sync(&store::load_tree()) {
+                Ok(count) => {
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({ "published": count }))
+                                .unwrap_or_else(|_| "{}".into())
+                        );
+                    } else {
+                        println!("published {count} favorite session(s) to the Omarchy menu");
+                    }
+                    EXIT_OK
+                }
+                Err(e) => {
+                    print_error(json, &e);
+                    EXIT_ERROR
+                }
+            }
+        }
+        OmarchyAction::Disable => {
+            let mut ui = store::get_ui_settings();
+            ui.omarchy_menu_integration = false;
+            match store::set_ui_settings(&ui).and_then(|_| crate::omarchy::sync_for_settings(&ui)) {
+                Ok(_) => {
+                    if json {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json!({ "disabled": true }))
+                                .unwrap_or_else(|_| "{}".into())
+                        );
+                    } else {
+                        println!("Omarchy menu integration disabled; managed rows removed");
+                    }
+                    EXIT_OK
+                }
+                Err(e) => {
+                    print_error(json, &e);
+                    EXIT_ERROR
+                }
+            }
         }
     }
 }
@@ -382,8 +624,16 @@ apikeys create <name>  Generate a new key; the plaintext is printed once\n    \
 apikeys list           Print id/name/created metadata (no secrets)\n    \
 apikeys revoke <id>    Revoke the key with this id\n\
 \n\
+AUTOMATION (issues #22/#23):\n    \
+vault status       Show opt-in auto-unlock configuration (no secrets)\n    \
+vault unlock       Verify the configured API key can unlock the vault\n    \
+omarchy status     Show Omarchy detection and published favorite count\n    \
+omarchy sync       Publish favorite sessions to Omarchy Remote Hosts\n    \
+omarchy disable    Remove the managed Omarchy menu rows\n\
+\n\
 FLAGS:\n    \
 --json            Machine-readable JSON output on stdout\n    \
+--session <path>  Launch the GUI selecting this stable session path\n    \
 -h, --help        Print this help\n    \
 -V, --version     Print version\n\
 \n\
@@ -395,9 +645,9 @@ EXIT CODES:\n    \
 CONVENTIONS:\n    \
 - Data goes to stdout; diagnostics and warnings go to stderr.\n    \
 - No interactive prompts: missing prerequisites fail fast with a clear error.\n    \
-- Secrets are never printed. Vault contents stay locked headless; exports\n    \
-  always strip passwords. Import never stores passwords (use the GUI to fill\n    \
-  the encrypted vault).\n\
+- Secrets are never printed. `vault unlock` only verifies auto-unlock\n    \
+  credentials in memory; exports always strip passwords. Import never stores\n    \
+  passwords (use the GUI to fill the encrypted vault).\n\
 \n\
 EXAMPLES:\n    \
 nuxsshterm list --json\n    \
@@ -651,14 +901,14 @@ mod tests {
 
     #[test]
     fn no_args_or_unknown_leading_token_starts_gui() {
-        assert!(matches!(parse(&[]), ParseResult::Gui));
-        assert!(matches!(parse(&s(&["--funky-flag"])), ParseResult::Gui));
-        assert!(matches!(parse(&s(&["somefile.xml"])), ParseResult::Gui));
+        assert!(matches!(parse(&[]), ParseResult::Gui { .. }));
+        assert!(matches!(parse(&s(&["--funky-flag"])), ParseResult::Gui { .. }));
+        assert!(matches!(parse(&s(&["somefile.xml"])), ParseResult::Gui { .. }));
     }
 
     #[test]
     fn flags_only_start_gui() {
-        assert!(matches!(parse(&s(&["--json"])), ParseResult::Gui));
+        assert!(matches!(parse(&s(&["--json"])), ParseResult::Gui { .. }));
     }
 
     #[test]
@@ -794,5 +1044,42 @@ mod tests {
             }
             _ => panic!("expected apikeys list"),
         }
+    }
+
+    #[test]
+    fn session_flag_launches_gui_with_target() {
+        match parse(&s(&["--session", "grp/Prod"])) {
+            ParseResult::Gui { session } => assert_eq!(session.as_deref(), Some("grp/Prod")),
+            _ => panic!("expected GUI launch with a session"),
+        }
+        assert!(matches!(
+            parse(&s(&["--session"])),
+            ParseResult::UsageError { .. }
+        ));
+        assert!(matches!(
+            parse(&s(&["list", "--session", "x"])),
+            ParseResult::UsageError { .. }
+        ));
+    }
+
+    #[test]
+    fn vault_and_omarchy_verbs_parse() {
+        match parse(&s(&["vault", "unlock", "--json"])) {
+            ParseResult::Cli(inv) => {
+                assert!(inv.json);
+                assert!(matches!(inv.command, Command::Vault(VaultAction::Unlock)))
+            }
+            _ => panic!("expected vault unlock"),
+        }
+        match parse(&s(&["omarchy", "sync"])) {
+            ParseResult::Cli(inv) => {
+                assert!(matches!(inv.command, Command::Omarchy(OmarchyAction::Sync)))
+            }
+            _ => panic!("expected omarchy sync"),
+        }
+        assert!(matches!(
+            parse(&s(&["vault"])),
+            ParseResult::UsageError { .. }
+        ));
     }
 }

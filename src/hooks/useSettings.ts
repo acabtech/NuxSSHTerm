@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getUiSettings, setUiSettings } from "../api";
 import { normalizeHexColor } from "../lib/color";
-import type { AuthSettings, SidebarSettings } from "../types";
+import type { AutoUnlockSource, AuthSettings, SidebarSettings } from "../types";
 import {
   DEFAULT_UI_SETTINGS,
   type CursorStyle,
@@ -11,6 +11,7 @@ import {
 
 const CURSOR_STYLES: readonly CursorStyle[] = ["block", "underline", "bar"];
 const BELL_STYLES: readonly UiSettings["terminal"]["bellStyle"][] = ["none", "visual", "sound", "both"];
+const AUTO_UNLOCK_SOURCES: readonly AutoUnlockSource[] = ["none", "env", "file"];
 
 function normalizeCursorStyle(v: unknown): CursorStyle {
   return CURSOR_STYLES.includes(v as CursorStyle) ? (v as CursorStyle) : DEFAULT_UI_SETTINGS.terminal.cursorStyle;
@@ -80,6 +81,19 @@ export function useSettings(notify: (msg: string, kind?: "info" | "success" | "e
           Number.isFinite(lockMins) && lockMins >= 0
             ? Math.round(lockMins)
             : DEFAULT_UI_SETTINGS.vaultAutoLockMinutes;
+        merged.vaultAutoUnlockEnabled = Boolean((merged as UiSettings).vaultAutoUnlockEnabled);
+        merged.vaultAutoUnlockSource = AUTO_UNLOCK_SOURCES.includes(
+          (merged as UiSettings).vaultAutoUnlockSource as AutoUnlockSource,
+        )
+          ? (merged as UiSettings).vaultAutoUnlockSource
+          : DEFAULT_UI_SETTINGS.vaultAutoUnlockSource;
+        for (const key of ["vaultAutoUnlockKeyId", "vaultAutoUnlockEnvVar", "vaultAutoUnlockFilePath"] as const) {
+          merged[key] =
+            typeof (merged as UiSettings)[key] === "string"
+              ? (merged as UiSettings)[key]
+              : DEFAULT_UI_SETTINGS[key];
+        }
+        merged.omarchyMenuIntegration = Boolean((merged as UiSettings).omarchyMenuIntegration);
         merged.defaultForwardAgent = Boolean((merged as UiSettings).defaultForwardAgent);
         merged.defaultPrivateKey =
           typeof (merged as UiSettings).defaultPrivateKey === "string"

@@ -40,10 +40,21 @@ import {
   useLayout,
 } from "./hooks/useLayout";
 import { buildMenus } from "./lib/menuActions";
-import { getWorkspace, setWorkspace } from "./api";
+import { getWorkspace, setWorkspace, takePendingSession } from "./api";
 import { accentSoftFromHex, normalizeHexColor } from "./lib/color";
 import { emptyNode, type SessionNode, type Tab } from "./types";
-import { applyPasswords, clearPasswords, getAt, insertAt, pathKey } from "./lib/tree";
+import {
+  applyPasswords,
+  clearPasswords,
+  findPathByKey,
+  getAt,
+  insertAt,
+  passwordKeyMigrations,
+  pathKey,
+  removeAt,
+  updateAt,
+  vaultKeys,
+} from "./lib/tree";
 
 const SHORTCUTS = [
   ["Ctrl + T", "New local shell"],
@@ -164,6 +175,8 @@ export default function App() {
     reset: vaultReset,
     getPasswords: vaultGetPasswords,
     putPassword: vaultPutPassword,
+    removePassword: vaultRemovePassword,
+    getPassword: vaultGetPassword,
   } = vault;
 
   const treeApi = useSessionTree(notify);
@@ -342,15 +355,18 @@ export default function App() {
   /** Drop a tab onto a gutter: split the neighbor leaf and move the tab in. */
   const splitForTab = useCallback(
     (leafId: string, tabId: string, dir: "row" | "col") => {
-      setLayout((t) => {
-        const splitNode = splitLeaf(t, leafId, null, dir);
-        const after = collectLeaves(splitNode);
-        const empty = after.find((l) => l.tabId === null);
-        return empty ? moveTabToLeaf(splitNode, empty.id, tabId) : splitNode;
-      });
-      setActiveLeafId(leafId);
+      // splitLeaf replaces `leafId` with a split whose children get fresh ids,
+      // so focus must come from the resulting tree, not the dropped-on leaf
+      // (issue #31). Compute both state changes from the same snapshot so a
+      // React state updater never performs the setActiveLeafId side effect.
+      const splitNode = splitLeaf(layout, leafId, null, dir);
+      const empty = collectLeaves(splitNode).find((l) => l.tabId === null);
+      const next = empty ? moveTabToLeaf(splitNode, empty.id, tabId) : splitNode;
+      const targetLeafId = findLeafByTab(next, tabId) ?? empty?.id ?? leafId;
+      setLayout(next);
+      setActiveLeafId(targetLeafId);
     },
-    [setLayout],
+    [layout, setLayout],
   );
 
   const handleClosePane = useCallback(
@@ -427,6 +443,32 @@ export default function App() {
     [openCommander],
   );
 
+  // Omarchy menu rows launch `nuxsshterm --session <path>` (issue #23). The
+  // backend queues that path before the GUI starts; consume it once the tree is
+  // loaded, select the session and open a terminal tab for it.
+  const pendingSessionConsumed = useRef(false);
+  useEffect(() => {
+    if (pendingSessionConsumed.current || tree.length === 0) return;
+    pendingSessionConsumed.current = true;
+    void takePendingSession().then((key) => {
+      if (!key) return;
+      const path = findPathByKey(tree, key);
+      const node = path ? getAt(tree, path) : null;
+      if (!path || !node) {
+        notify(`Session "${key}" from the menu no longer exists`, "error");
+        return;
+      }
+      setSelectedPath(path);
+      const res = openSession(node);
+      if (res.ok) {
+        setPage("workspace");
+        notify(`Opened "${node.name}" from Omarchy menu`, "success");
+      } else {
+        notify(`Could not open "${node.name}" (${res.reason ?? "unknown error"})`, "error");
+      }
+    });
+  }, [tree, setSelectedPath, openSession, notify]);
+
   /* ------------------------------ vault ------------------------------ */
 
   // On start, prompt to set up or unlock the vault (dismissable).
@@ -457,18 +499,89 @@ export default function App() {
   }, [vaultStatus.unlocked, setTree]);
 
   // Persist password edits to the vault (only meaningful while unlocked).
+  // Issue #32: vault entries are keyed by the node's name path, so a rename
+  // (session or ancestor folder) must migrate affected entries — otherwise the
+  // password is stranded under the pre-rename key and lost after lock/unlock.
+  // Combined name+password patches must persist under the new key, so the
+  // migration runs against the already-patched tree, then the explicit
+  // password write lands under the new key.
   const handleUpdateNode = useCallback(
     (patch: Partial<SessionNode>) => {
-      if (patch.password !== undefined && vaultStatus.unlocked && selectedPath) {
-        const key = pathKey(tree, selectedPath);
-        void vaultPutPassword(key, patch.password).catch((e) =>
-          notify(`Vault save failed: ${String(e)}`, "error"),
-        );
+      const nextTree = selectedPath ? updateAt(tree, selectedPath, patch) : tree;
+      if (vaultStatus.unlocked && selectedPath) {
+        const pairs = passwordKeyMigrations(tree, nextTree);
+        if (patch.password !== undefined) {
+          const key = pathKey(nextTree, selectedPath);
+          const liveKeys = vaultKeys(nextTree);
+          void vaultPutPassword(key, patch.password)
+            .then(() => {
+              // Drop stale pre-rename entries, except keys still in use
+              // elsewhere in the tree (old key may equal another node's key).
+              return Promise.all(
+                pairs
+                  .filter(([oldKey]) => oldKey !== key && !liveKeys.has(oldKey))
+                  .map(([oldKey]) => vaultRemovePassword(oldKey).catch(() => {})),
+              ).then(() => undefined);
+            })
+            .catch((e) => notify(`Vault save failed: ${String(e)}`, "error"));
+        } else if (pairs.length > 0) {
+          const liveKeys = vaultKeys(nextTree);
+          void Promise.all(
+            pairs.map(async ([oldKey, newKey]) => {
+              const pw = await vaultGetPassword(oldKey).catch(() => undefined);
+              if (pw === undefined || pw === null) return;
+              await vaultPutPassword(newKey, pw);
+              if (oldKey !== newKey && !liveKeys.has(oldKey)) {
+                await vaultRemovePassword(oldKey).catch(() => {});
+              }
+            }),
+          ).catch((e) => notify(`Vault migration failed: ${String(e)}`, "error"));
+        }
       }
       updateNode(patch);
     },
-    [vaultStatus.unlocked, selectedPath, tree, vaultPutPassword, updateNode, notify],
+    [
+      vaultStatus.unlocked,
+      selectedPath,
+      tree,
+      updateNode,
+      notify,
+      vaultGetPassword,
+      vaultPutPassword,
+      vaultRemovePassword,
+    ],
   );
+
+  // Deleting a session (or a folder containing sessions) must also drop its
+  // vault entries, otherwise the orphaned credentials are silently inherited
+  // by any later session that lands on the same name path (issue #38). Compare
+  // the key sets before/after removal so a key still used elsewhere in the
+  // tree is never deleted, and skip cleanup while the vault is locked.
+  const handleDeleteSelected = useCallback(() => {
+    if (!selectedPath || !getAt(tree, selectedPath)) return;
+    if (vaultStatus.unlocked) {
+      const before = vaultKeys(tree);
+      const after = vaultKeys(removeAt(tree, selectedPath));
+      const orphaned = [...before].filter((key) => !after.has(key));
+      if (orphaned.length > 0) {
+        void Promise.all(
+          orphaned.map((key) =>
+            vaultRemovePassword(key).catch((e) =>
+              notify(`Vault cleanup failed for "${key}": ${String(e)}`, "error"),
+            ),
+          ),
+        );
+      }
+    }
+    deleteSelected();
+  }, [
+    selectedPath,
+    tree,
+    vaultStatus.unlocked,
+    vaultRemovePassword,
+    deleteSelected,
+    notify,
+  ]);
 
   // Auto-lock the encrypted vault after a period of inactivity while unlocked.
   useEffect(() => {
@@ -931,7 +1044,7 @@ export default function App() {
           <div className="menu-item" onClick={() => { setCtx(null); duplicateSelected(); }}>
             <span>Duplicate</span>
           </div>
-          <div className="menu-item" onClick={() => { setCtx(null); deleteSelected(); }}>
+          <div className="menu-item" onClick={() => { setCtx(null); handleDeleteSelected(); }}>
             <span>Delete</span>
           </div>
           <div className="menu-sep" />

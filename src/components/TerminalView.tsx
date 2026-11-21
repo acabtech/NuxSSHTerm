@@ -88,22 +88,43 @@ export function TerminalView({ tab, active, term: termSettings }: { tab: Tab; ac
     let unData: (() => void) | undefined;
     let unExit: (() => void) | undefined;
     let disposed = false;
+    const unlistenAll = () => {
+      unData?.();
+      unExit?.();
+      unData = undefined;
+      unExit = undefined;
+    };
 
     (async () => {
-      unData = await onPtyData((e) => {
-        if (e.id === tab.id) term.write(base64ToBytes(e.data));
+      const stopData = await onPtyData((e) => {
+        if (!disposed && e.id === tab.id) term.write(base64ToBytes(e.data));
       });
-      unExit = await onPtyExit((e) => {
-        if (e.id === tab.id) {
+      // Cleanup may have run while the listen() promise was pending. Unlisten
+      // immediately rather than leaving a subscription on a disposed term
+      // (issue #30).
+      if (disposed) {
+        stopData();
+        return;
+      }
+      unData = stopData;
+
+      const stopExit = await onPtyExit((e) => {
+        if (!disposed && e.id === tab.id) {
           setExited(true);
           term.write("\r\n\x1b[33m[session closed]\x1b[0m\r\n");
         }
       });
-      if (disposed) return;
+      if (disposed) {
+        stopExit();
+        unlistenAll();
+        return;
+      }
+      unExit = stopExit;
+
       try {
         await ptyOpen(tab.id, tab.spec, term.cols, term.rows, tab.password);
       } catch (err) {
-        term.write(`\x1b[31mFailed to start session: ${String(err)}\x1b[0m\r\n`);
+        if (!disposed) term.write(`\x1b[31mFailed to start session: ${String(err)}\x1b[0m\r\n`);
       }
     })();
 
@@ -125,8 +146,7 @@ export function TerminalView({ tab, active, term: termSettings }: { tab: Tab; ac
       disposed = true;
       ro.disconnect();
       onDataSub.dispose();
-      unData?.();
-      unExit?.();
+      unlistenAll();
       terms.delete(tab.id);
       void ptyClose(tab.id).catch(() => {});
       term.dispose();

@@ -427,10 +427,12 @@ fn convert_ppk_impl(source: String) -> Result<ConvertedKey, String> {
     }
 
     // Converted keys are secrets — never leave them world-readable.
-    let mut ch = std::process::Command::new("chmod");
-    ch.arg("600");
-    ch.arg(&converted);
-    let _ = ch.output();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&out_path, std::fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("could not restrict permissions on converted key: {e}"))?;
+    }
 
     Ok(ConvertedKey {
         original: source,

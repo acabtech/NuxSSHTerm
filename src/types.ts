@@ -176,6 +176,9 @@ export interface AuthSettings {
   agentFallback: boolean;
 }
 
+/** Where the opt-in auto-unlock API key plaintext is supplied from (issue #22). */
+export type AutoUnlockSource = "none" | "env" | "file";
+
 /** SFTP commander / file transfer preferences (mirrors the Rust `TransferSettings`). */
 export interface TransferSettings {
   confirmBeforeOverwrite: boolean;
@@ -193,6 +196,18 @@ export interface UiSettings {
   accentColor: string;
   /** Auto-lock the encrypted vault after N minutes of inactivity while unlocked. 0 disables. */
   vaultAutoLockMinutes: number;
+  /** Opt-in: unlock the vault on startup with an API key (issue #22). */
+  vaultAutoUnlockEnabled: boolean;
+  /** Id of the registered API key whose plaintext wraps the vault key. */
+  vaultAutoUnlockKeyId: string;
+  /** Where the API key plaintext comes from: none | env | file. */
+  vaultAutoUnlockSource: AutoUnlockSource;
+  /** Environment variable name when source is "env" (default NUXSSH_API_KEY). */
+  vaultAutoUnlockEnvVar: string;
+  /** Local file path when source is "file". */
+  vaultAutoUnlockFilePath: string;
+  /** Opt-in: publish favorite sessions to Omarchy's Remote Hosts menu (issue #23). */
+  omarchyMenuIntegration: boolean;
   /** Default for new connections: forward the local ssh-agent to the remote host. */
   defaultForwardAgent: boolean;
   /** Default for new connections: private key path (e.g. ~/.ssh/id_ed25519). */
@@ -215,6 +230,12 @@ export const DEFAULT_UI_SETTINGS: UiSettings = {
   showConfig: true,
   accentColor: "#3b82f6",
   vaultAutoLockMinutes: 0,
+  vaultAutoUnlockEnabled: false,
+  vaultAutoUnlockKeyId: "",
+  vaultAutoUnlockSource: "none",
+  vaultAutoUnlockEnvVar: "",
+  vaultAutoUnlockFilePath: "",
+  omarchyMenuIntegration: false,
   defaultForwardAgent: false,
   defaultPrivateKey: "",
   terminal: {

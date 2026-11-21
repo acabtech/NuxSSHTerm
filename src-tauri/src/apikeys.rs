@@ -9,8 +9,9 @@
 //!   record, purely for readability) is stored in `settings.json` under
 //!   `apiKeys`; the plaintext is shown exactly once at creation.
 //! - Keys are verified with a constant-time comparison of hashes.
-//! - Keys are identifiers only: they authorize nothing by themselves yet —
-//!   later features (e.g. issue #22 vault auto-unlock) build on them.
+//! - Keys are bearer credentials for the opt-in automation surface: a
+//!   registered key can wrap the vault key for unattended unlock (issue #22),
+//!   and revoking it invalidates both CLI use and that wrapped copy.
 //! - The CLI never prints stored hashes; `apikeys list` shows name, id,
 //!   creation date, and last-used (reserved) metadata only.
 

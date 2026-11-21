@@ -61,7 +61,7 @@ fn size(cols: u16, rows: u16) -> PtySize {
 /// holding the password; `SSH_ASKPASS_REQUIRE=force` makes ssh use it even
 /// though the session has a controlling PTY (it would otherwise prompt on the
 /// terminal and ignore askpass).
-fn askpass_setup(id: &str, password: &str) -> (PathBuf, PathBuf) {
+fn askpass_setup(id: &str, password: &str) -> Result<(PathBuf, PathBuf), String> {
     let dir = crate::store::config_dir();
     let helper = dir.join("pty-askpass.sh");
     if !helper.exists() {
@@ -80,9 +80,28 @@ fn askpass_setup(id: &str, password: &str) -> (PathBuf, PathBuf) {
         })
         .collect();
     let file = dir.join(format!(".pty-askpass-{safe_id}"));
-    let _ = std::fs::write(&file, password);
-    let _ = std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o600));
-    (helper, file)
+    write_secret_file(&file, password)?;
+    Ok((helper, file))
+}
+
+/// Create `path` containing `contents` with mode 0600 from the instant it is
+/// created (never briefly umask-readable), and propagate write failures.
+/// A stale file from a killed session is removed first so `create_new` cannot
+/// spuriously fail on the next open (issue #39).
+pub(crate) fn write_secret_file(path: &std::path::Path, contents: &str) -> Result<(), String> {
+    let _ = std::fs::remove_file(path);
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    let mut f = opts
+        .open(path)
+        .map_err(|e| format!("failed to create secret file {}: {e}", path.display()))?;
+    f.write_all(contents.as_bytes())
+        .map_err(|e| format!("failed to write secret file {}: {e}", path.display()))
 }
 
 /// Open a terminal: spawn `ssh` (or a local shell when host is empty) inside a PTY.
@@ -120,7 +139,7 @@ pub fn pty_open(
             askpass_password = password.clone().filter(|p| !p.is_empty());
         }
         let has_credential = !effective_spec.private_key.is_empty()
-            || askpass_password.as_deref().map_or(false, |p| !p.is_empty());
+            || askpass_password.as_deref().is_some_and(|p| !p.is_empty());
         let (policy_export_agent, identities_only) = auth.session_policy(has_credential);
         let agent_socket = if policy_export_agent {
             crate::agent::session_socket()
@@ -173,7 +192,7 @@ pub fn pty_open(
     // Suppressed for `agent_only` (askpass_password stays None above).
     let mut askpass_file = None;
     if !local_shell && let Some(pw) = askpass_password {
-        let (helper, file) = askpass_setup(&id, &pw);
+        let (helper, file) = askpass_setup(&id, &pw)?;
         cmd.env("SSH_ASKPASS", &helper);
         cmd.env("SSH_ASKPASS_REQUIRE", "force");
         // Any non-empty DISPLAY satisfies ssh's askpass engagement check.
@@ -280,4 +299,46 @@ pub fn pty_close(state: State<'_, PtyState>, id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn pty_alive(state: State<'_, PtyState>) -> Vec<String> {
     state.0.lock().unwrap().keys().cloned().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_secret_file;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn secret_file_is_0600_and_replaces_stale_files() {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "nx-secret-file-test-{}-{}.tmp",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        write_secret_file(&path, "first").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "first");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+
+        // A leftover file from a killed session must not break the next open.
+        write_secret_file(&path, "second").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+
+        std::fs::remove_file(&path).unwrap();
+    }
 }

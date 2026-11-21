@@ -326,7 +326,7 @@ fn rm_r(
     Ok(())
 }
 
-fn askpass_setup(id: &str, password: &str) -> (PathBuf, PathBuf) {
+fn askpass_setup(id: &str, password: &str) -> Result<(PathBuf, PathBuf), String> {
     let dir = crate::store::config_dir();
     let helper = dir.join("sftp-askpass.sh");
     if !helper.exists() {
@@ -334,10 +334,22 @@ fn askpass_setup(id: &str, password: &str) -> (PathBuf, PathBuf) {
         let _ =
             std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o700));
     }
-    let file = dir.join(format!(".sftp-askpass-{id}"));
-    let _ = std::fs::write(&file, password);
-    let _ = std::fs::set_permissions(&file, std::os::unix::fs::PermissionsExt::from_mode(0o600));
-    (helper, file)
+    let file = dir.join(format!(".sftp-askpass-{}", sanitize_id(id)));
+    crate::pty::write_secret_file(&file, password)?;
+    Ok((helper, file))
+}
+
+/// Askpass ids come from user-visible names; keep only filename-safe chars.
+fn sanitize_id(id: &str) -> String {
+    id.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// Spawn the persistent child for one commander tab, run a `pwd` handshake to
@@ -359,7 +371,7 @@ pub fn open(
         password.clone().filter(|p| !p.is_empty())
     };
     let has_credential = !effective_spec.private_key.is_empty()
-        || askpass_password.as_deref().map_or(false, |p| !p.is_empty());
+        || askpass_password.as_deref().is_some_and(|p| !p.is_empty());
     let (policy_export_agent, identities_only) = auth.session_policy(has_credential);
     let agent_socket = if policy_export_agent {
         crate::agent::session_socket()
@@ -401,7 +413,7 @@ pub fn open(
 
     let mut askpass_file = None;
     if let Some(pw) = askpass_password {
-        let (helper, file) = askpass_setup(id, &pw);
+        let (helper, file) = askpass_setup(id, &pw)?;
         cmd.env("SSH_ASKPASS", &helper);
         cmd.env("SSH_ASKPASS_REQUIRE", "force");
         // Any non-empty DISPLAY satisfies ssh's askpass engagement check.

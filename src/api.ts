@@ -7,6 +7,31 @@ export const loadTree = () => invoke<SessionNode[]>("load_tree");
 export const saveTree = (tree: SessionNode[]) => invoke<void>("save_tree", { tree });
 export const getConfigDir = () => invoke<string>("config_dir");
 
+// ---- Optional integrations (issues #22, #23) ----
+export interface AutoUnlockStatus {
+  configured: boolean;
+  keyId: string;
+  keyRegistered: boolean;
+}
+export const vaultAutoUnlockStatus = () =>
+  invoke<AutoUnlockStatus>("vault_auto_unlock_status");
+export const vaultAutoUnlockEnable = (master: string, key: string) =>
+  invoke<string>("vault_auto_unlock_enable", { master, key });
+export const vaultAutoUnlockDisable = () =>
+  invoke<void>("vault_auto_unlock_disable");
+export const vaultUnlockAuto = () => invoke<void>("vault_unlock_auto");
+
+export interface OmarchyStatus {
+  available: boolean;
+  menuPath: string;
+  published: number;
+}
+export const omarchyStatus = () => invoke<OmarchyStatus>("omarchy_status");
+export const omarchySync = () => invoke<number>("omarchy_sync");
+/** Consume a `--session <path>` launch request written before the GUI started. */
+export const takePendingSession = () =>
+  invoke<string | null>("take_pending_session");
+
 // ---- v0.5.0: persisted UI chrome settings ----
 export const getUiSettings = () => invoke<UiSettings>("get_ui_settings");
 export const setUiSettings = (ui: UiSettings) => invoke<void>("set_ui_settings", { ui });
@@ -87,6 +112,11 @@ export const vaultPutPassword = (path: string, password: string) =>
   invoke<void>("vault_put_password", { path, password });
 export const vaultRemovePassword = (path: string) =>
   invoke<void>("vault_remove_password", { path });
+/** Fetch one vault password entry by path key (undefined when absent). */
+export const vaultGetPassword = async (path: string): Promise<string | undefined> => {
+  const map = await vaultGetPasswords();
+  return map[path];
+};
 
 export const ptyOpen = (
   id: string,
