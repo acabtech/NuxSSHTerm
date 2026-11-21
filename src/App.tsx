@@ -353,15 +353,18 @@ export default function App() {
   /** Drop a tab onto a gutter: split the neighbor leaf and move the tab in. */
   const splitForTab = useCallback(
     (leafId: string, tabId: string, dir: "row" | "col") => {
-      setLayout((t) => {
-        const splitNode = splitLeaf(t, leafId, null, dir);
-        const after = collectLeaves(splitNode);
-        const empty = after.find((l) => l.tabId === null);
-        return empty ? moveTabToLeaf(splitNode, empty.id, tabId) : splitNode;
-      });
-      setActiveLeafId(leafId);
+      // splitLeaf replaces `leafId` with a split whose children get fresh ids,
+      // so focus must come from the resulting tree, not the dropped-on leaf
+      // (issue #31). Compute both state changes from the same snapshot so a
+      // React state updater never performs the setActiveLeafId side effect.
+      const splitNode = splitLeaf(layout, leafId, null, dir);
+      const empty = collectLeaves(splitNode).find((l) => l.tabId === null);
+      const next = empty ? moveTabToLeaf(splitNode, empty.id, tabId) : splitNode;
+      const targetLeafId = findLeafByTab(next, tabId) ?? empty?.id ?? leafId;
+      setLayout(next);
+      setActiveLeafId(targetLeafId);
     },
-    [setLayout],
+    [layout, setLayout],
   );
 
   const handleClosePane = useCallback(
