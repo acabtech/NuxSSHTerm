@@ -40,12 +40,13 @@ import {
   useLayout,
 } from "./hooks/useLayout";
 import { buildMenus } from "./lib/menuActions";
-import { getWorkspace, setWorkspace } from "./api";
+import { getWorkspace, setWorkspace, takePendingSession } from "./api";
 import { accentSoftFromHex, normalizeHexColor } from "./lib/color";
 import { emptyNode, type SessionNode, type Tab } from "./types";
 import {
   applyPasswords,
   clearPasswords,
+  findPathByKey,
   getAt,
   insertAt,
   passwordKeyMigrations,
@@ -441,6 +442,32 @@ export default function App() {
     },
     [openCommander],
   );
+
+  // Omarchy menu rows launch `nuxsshterm --session <path>` (issue #23). The
+  // backend queues that path before the GUI starts; consume it once the tree is
+  // loaded, select the session and open a terminal tab for it.
+  const pendingSessionConsumed = useRef(false);
+  useEffect(() => {
+    if (pendingSessionConsumed.current || tree.length === 0) return;
+    pendingSessionConsumed.current = true;
+    void takePendingSession().then((key) => {
+      if (!key) return;
+      const path = findPathByKey(tree, key);
+      const node = path ? getAt(tree, path) : null;
+      if (!path || !node) {
+        notify(`Session "${key}" from the menu no longer exists`, "error");
+        return;
+      }
+      setSelectedPath(path);
+      const res = openSession(node);
+      if (res.ok) {
+        setPage("workspace");
+        notify(`Opened "${node.name}" from Omarchy menu`, "success");
+      } else {
+        notify(`Could not open "${node.name}" (${res.reason ?? "unknown error"})`, "error");
+      }
+    });
+  }, [tree, setSelectedPath, openSession, notify]);
 
   /* ------------------------------ vault ------------------------------ */
 

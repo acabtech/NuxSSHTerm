@@ -4,6 +4,7 @@ import {
   vaultGetPasswords,
   vaultInit,
   vaultLock,
+  vaultUnlockAuto,
   vaultPutPassword,
   vaultRemovePassword,
   vaultReset,
@@ -23,7 +24,19 @@ export function useVault(notify: (msg: string, kind?: "info" | "success" | "erro
   useEffect(() => {
     (async () => {
       try {
-        setStatus(await getVaultStatus());
+        let status = await getVaultStatus();
+        // Opt-in auto-unlock (issue #22): try the configured API key before the
+        // interactive prompt. A missing/revoked key silently falls back to the
+        // existing master-password modal — no startup error spam.
+        if (status.initialized && !status.unlocked) {
+          try {
+            await vaultUnlockAuto();
+            status = await getVaultStatus();
+          } catch {
+            // fall through to the normal unlock prompt
+          }
+        }
+        setStatus(status);
       } catch (e) {
         notify(`Vault status failed: ${String(e)}`, "error");
       } finally {

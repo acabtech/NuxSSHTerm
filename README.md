@@ -113,6 +113,15 @@ nuxsshterm import connections.xml                # preview a sessions file (no c
 nuxsshterm import connections.xml --yes          # commit: replaces the stored session tree
 nuxsshterm export out.xml                        # export WinSSHTerm XML (passwords stripped)
 nuxsshterm export out.xml --force                # overwrite an existing target
+nuxsshterm apikeys create automation             # mint a bearer key (plaintext shown once)
+nuxsshterm apikeys list                          # key metadata only, never secrets
+nuxsshterm apikeys revoke <id>                   # revoke a key and its wrapped vault copy
+nuxsshterm vault status                          # opt-in auto-unlock configuration
+nuxsshterm vault unlock                          # verify the configured key in memory
+nuxsshterm omarchy status                        # Omarchy detection / published count
+nuxsshterm omarchy sync                          # publish favorite sessions
+nuxsshterm omarchy disable                       # remove managed menu rows
+nuxsshterm --session "grp/Prod"                  # launch the GUI opening one session
 ```
 
 Conventions (applies as the surface grows):
@@ -122,19 +131,73 @@ Conventions (applies as the surface grows):
   `1` runtime error, `2` usage error.
 - Non-interactive: no prompts — missing prerequisites fail fast with a clear
   error.
-- Secrets are never printed: the vault stays locked headless, exports always
-  strip passwords, and imports never store passwords (use the GUI import
-  wizard for vault-backed imports).
+- Secrets are never printed: `vault unlock` only proves that the configured
+  auto-unlock key can unwrap the vault key in memory; the vault stays locked
+  headless. Exports always strip passwords, and imports never store passwords
+  (use the GUI import wizard for vault-backed imports).
 - Sessions are addressed by their `/`-joined tree path (same key scheme the
   vault and settings use).
 
-Vault unlock, terminal sessions, SFTP, and the agent manager require the GUI.
+Terminal sessions, SFTP, and the agent manager require the GUI.
 
 ### Vault
 
 - On first use you can create a master password; existing vaults prompt for unlock.
 - Vault state is surfaced in the UI/status bar; lock/reset actions are available from menus/dialog flows.
 - Password edits for connections are persisted to the vault while unlocked (and handled according to current app state when locked).
+
+#### Opt-in automatic unlock with an API key
+
+**Settings → Connections & Security → Automatic vault unlock** is disabled by
+default. To enable it, create an API key (`apikeys create <name>`), supply that
+key once in the card together with the existing master password, and choose a
+local-only source for subsequent unlocks:
+
+- an **environment variable** (default `NUXSSH_API_KEY`, or a custom name), or
+- a **protected local file** (paths may start with `~/`).
+
+Enabling wraps the vault's AES key with a key-encryption-key derived from the
+API key and stores only that wrapped blob in `auto-unlock.json`. The master
+password is never persisted. Revoking the key — from the UI or the CLI —
+deletes the wrapped copy and switches the setting off. **Disable and forget
+wrapped key** does the same without revoking the key itself. Vault reset also
+clears the wrapper. The normal master-password path and inactivity auto-lock
+continue to work unchanged; locking drops the in-memory key, and the next
+startup may use the key again.
+
+Threat model and limitations:
+
+- **Protects against:** offline reading of `vault.bin` or `settings.json`
+  alone; an attacker needs both the wrapped key file and the API key plaintext
+  from the chosen local source.
+- **Does not protect against:** a compromised user account or machine, another
+  process reading the environment/file, backups that include both the wrapper
+  and the key, or coercion of the user. Anyone who obtains the API key can read
+  every stored session password.
+- The API key is a **bearer credential**, not a scoped permission: it is only
+  for vault decryption/unlock and CLI identification. Keep the key file
+  `0600`, avoid putting it in shell history or shared dotfiles, and disable the
+  feature on machines you do not control.
+- `vault status`/`vault unlock` never print the key or decrypted passwords;
+  headless `vault unlock` validates credentials in memory only.
+
+### Omarchy menu integration
+
+**Settings → Connections & Security → Omarchy menu integration** is opt-in and
+a no-op when the Omarchy config is not detected. When enabled, starred
+connections are published under Omarchy's existing **Remote Hosts** submenu as
+`remote-hosts.nuxsshterm.*` rows in
+`~/.config/omarchy/extensions/omarchy-menu.jsonc`.
+
+- The app owns only the lines between its `BEGIN/END NuxSSHTerm managed
+  favorites` markers; all other JSONC rows and comments are preserved.
+- Selecting a row runs `nuxsshterm --session <stable path>`; the backend queues
+  the path and the GUI opens that session when it starts.
+- Enabling publishes immediately; renaming, unfavoriting, or deleting a
+  session rewrites the block on the next save, and disabling removes it.
+- The desktop entry must be installed so `nuxsshterm` resolves on `PATH`.
+  No Omarchy QML patch is required — this writes JSONC rows, not a new custom
+  provider. Inspect the file before enabling if you hand-maintain that menu.
 
 ### SSH key manager
 
@@ -156,6 +219,8 @@ NuxSSHTerm stores user data under `~/.config/nuxsshterm/` (platform config direc
 | `connections.xml` | Session tree in WinSSHTerm XML format (passwords stripped) |
 | `settings.json` | Non-secret app/UI settings (UI preferences, agent record, per-session flags, etc.) |
 | `vault.bin` | Encrypted vault data (secrets such as stored passwords / import mappings) |
+| `auto-unlock.json` (opt-in) | API-key ID plus the AES-GCM-wrapped vault key; never contains the master password or key plaintext |
+| `pending-session` (transient) | Stable session path queued by `nuxsshterm --session <path>` until the GUI consumes it |
 | `log` | Backend log output (best effort) |
 | `imported/` (when used) | Converted/imported key material created by import flows |
 | `*-askpass.sh` / helper files (runtime-created) | Temporary/helper scripts used for askpass-driven auth flows |
