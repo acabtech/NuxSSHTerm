@@ -89,6 +89,7 @@ fn askpass_setup(id: &str, password: &str) -> Result<(PathBuf, PathBuf), String>
 /// A stale file from a killed session is removed first so `create_new` cannot
 /// spuriously fail on the next open (issue #39).
 pub(crate) fn write_secret_file(path: &std::path::Path, contents: &str) -> Result<(), String> {
+    use std::io::Write;
     let _ = std::fs::remove_file(path);
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create_new(true);

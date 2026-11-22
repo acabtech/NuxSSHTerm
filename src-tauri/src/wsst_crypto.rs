@@ -98,7 +98,11 @@ fn decrypt_with_password(cipher_b64: &str, passphrase: &str) -> Result<String, S
 }
 
 /// Decrypt a connection password with the key-file `PasswordKey`/`SaltKey`.
-pub fn decrypt_value(cipher_b64: &str, password_key: &[u8], salt_key: &[u8]) -> Result<String, String> {
+pub fn decrypt_value(
+    cipher_b64: &str,
+    password_key: &[u8],
+    salt_key: &[u8],
+) -> Result<String, String> {
     let ciphertext = B64
         .decode(cipher_b64.as_bytes())
         .map_err(|e| format!("invalid WinSSHTerm ciphertext: {e}"))?;
@@ -306,6 +310,9 @@ mod tests {
                 decrypted += 1;
             }
         }
-        assert!(decrypted > 0, "expected encrypted passwords in the real backup");
+        assert!(
+            decrypted > 0,
+            "expected encrypted passwords in the real backup"
+        );
     }
 }

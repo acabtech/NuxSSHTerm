@@ -557,6 +557,7 @@ pub fn vault_reset(state: State<'_, VaultState>) -> Result<(), String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(format!("failed to delete vault file: {e}")),
     }
+    }
     clear_auto_config();
     disable_auto_unlock_settings()?;
     let mut inner = take_inner(&state);
@@ -612,9 +613,7 @@ pub fn vault_remove_password(state: State<'_, VaultState>, path: String) -> Resu
 
 /// Return all recorded `.ppk` → `.pem` conversions (original path -> converted path).
 #[tauri::command]
-pub fn vault_get_ppk_map(
-    state: State<'_, VaultState>,
-) -> Result<HashMap<String, String>, String> {
+pub fn vault_get_ppk_map(state: State<'_, VaultState>) -> Result<HashMap<String, String>, String> {
     let inner = state.0.lock().unwrap();
     if !inner.unlocked() {
         return Err("vault is locked".into());
@@ -663,7 +662,8 @@ mod tests {
         let bytes = encrypt_with_key(&blob, &key, &salt).unwrap();
         let (out, _, _) = decrypt(&bytes, master).unwrap();
         assert_eq!(
-            out.sessions_with_passwords.get("Proxmox Hosts/Elitedesk One"),
+            out.sessions_with_passwords
+                .get("Proxmox Hosts/Elitedesk One"),
             Some(&"s3cret".to_string())
         );
     }
@@ -681,6 +681,7 @@ mod tests {
     fn rejects_non_vault_data() {
         assert!(decrypt(b"garbage", b"pw").is_err());
     }
+
 
     #[test]
     fn api_key_wrapped_vault_key_round_trips() {

@@ -514,7 +514,10 @@ pub fn api_key_name_taken(name: &str) -> bool {
 /// Persist a new key record; returns the record (with id/hash, no plaintext).
 pub fn api_key_add(record: ApiKeyRecord) -> Result<ApiKeyRecord, String> {
     let mut s = load_settings();
-    if s.api_keys.values().any(|r| r.id == record.id || r.name == record.name) {
+    if s.api_keys
+        .values()
+        .any(|r| r.id == record.id || r.name == record.name)
+    {
         return Err("API key id/name conflict".into());
     }
     let id = record.id.clone();

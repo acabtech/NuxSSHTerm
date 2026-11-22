@@ -5,7 +5,7 @@
 //! via `puttygen` at import time (originals are never modified).
 
 use crate::kdbx;
-use crate::model::{Node, KIND_CONNECTION};
+use crate::model::{KIND_CONNECTION, Node};
 use crate::putty;
 use crate::wsst_crypto;
 use crate::xml;
@@ -238,7 +238,10 @@ fn run_import_file(path: String, master_password: Option<&str>) -> Result<Import
         })?;
 
     let pb = PathBuf::from(&path);
-    let ext = pb.extension().map(|o| o.to_string_lossy().to_string()).unwrap_or_default();
+    let ext = pb
+        .extension()
+        .map(|o| o.to_string_lossy().to_string())
+        .unwrap_or_default();
 
     // ---- KeePass .kdbx (binary; needs keepassxc-cli) ----
     if ext.eq_ignore_ascii_case("kdbx") {
@@ -268,69 +271,70 @@ Install keepassxc-cli and try again, or export the database as XML in KeePassXC 
     let text = decode_text(&bytes);
     let t = text.trim();
 
-    let (nodes, passwords, warnings, needs_master_password, encrypted_passwords, format) =
-        if t.contains("<WinSSHTerm_Backup") {
-            // ---- WinSSHTerm compressed backup (<Data><c n=".."> base64(gzip(pb))) ----
-            let envelope = xml::parse_backup_envelope(t)?;
-            let harvest = harvest_passwords(
-                &envelope.nodes,
-                envelope.key_file.as_deref(),
-                envelope.verify_key.as_deref(),
-                master_password,
-            );
-            let mut n = envelope.nodes;
-            crate::model::strip_passwords(&mut n);
-            let mut wn = xml_warnings(&n);
-            wn.extend(harvest.warnings);
-            (
-                n,
-                harvest.passwords,
-                wn,
-                harvest.needs_master_password,
-                harvest.encrypted_count,
-                "WinSSHTerm backup (compressed)".into(),
-            )
-        } else if t.starts_with("<?xml")
-            || t.starts_with("<WinSSHTerm")
-            || t.starts_with("<Node")
-            || t.contains("<WinSSHTerm")
-        {
-            // ---- WinSSHTerm connections.xml / .settings ----
-            let mut n = xml::parse_connections(t)?;
-            if n.is_empty() {
-                return Err("no sessions found in the WinSSHTerm file".into());
-            }
-            // A plain connections.xml keeps its key file as `key` alongside it.
-            let key_file = sibling_key_file(&path);
-            let harvest = harvest_passwords(&n, key_file.as_deref(), None, master_password);
-            crate::model::strip_passwords(&mut n);
-            let mut wn = xml_warnings(&n);
-            wn.extend(harvest.warnings);
-            (
-                n,
-                harvest.passwords,
-                wn,
-                harvest.needs_master_password,
-                harvest.encrypted_count,
-                "WinSSHTerm XML".into(),
-            )
-        } else {
-            // ---- PuTTY .reg / KiTTY .txt ----
-            let (n, w) = putty::import_text(&text);
-            if n.is_empty() {
-                return Err(
+    let (nodes, passwords, warnings, needs_master_password, encrypted_passwords, format) = if t
+        .contains("<WinSSHTerm_Backup")
+    {
+        // ---- WinSSHTerm compressed backup (<Data><c n=".."> base64(gzip(pb))) ----
+        let envelope = xml::parse_backup_envelope(t)?;
+        let harvest = harvest_passwords(
+            &envelope.nodes,
+            envelope.key_file.as_deref(),
+            envelope.verify_key.as_deref(),
+            master_password,
+        );
+        let mut n = envelope.nodes;
+        crate::model::strip_passwords(&mut n);
+        let mut wn = xml_warnings(&n);
+        wn.extend(harvest.warnings);
+        (
+            n,
+            harvest.passwords,
+            wn,
+            harvest.needs_master_password,
+            harvest.encrypted_count,
+            "WinSSHTerm backup (compressed)".into(),
+        )
+    } else if t.starts_with("<?xml")
+        || t.starts_with("<WinSSHTerm")
+        || t.starts_with("<Node")
+        || t.contains("<WinSSHTerm")
+    {
+        // ---- WinSSHTerm connections.xml / .settings ----
+        let mut n = xml::parse_connections(t)?;
+        if n.is_empty() {
+            return Err("no sessions found in the WinSSHTerm file".into());
+        }
+        // A plain connections.xml keeps its key file as `key` alongside it.
+        let key_file = sibling_key_file(&path);
+        let harvest = harvest_passwords(&n, key_file.as_deref(), None, master_password);
+        crate::model::strip_passwords(&mut n);
+        let mut wn = xml_warnings(&n);
+        wn.extend(harvest.warnings);
+        (
+            n,
+            harvest.passwords,
+            wn,
+            harvest.needs_master_password,
+            harvest.encrypted_count,
+            "WinSSHTerm XML".into(),
+        )
+    } else {
+        // ---- PuTTY .reg / KiTTY .txt ----
+        let (n, w) = putty::import_text(&text);
+        if n.is_empty() {
+            return Err(
                     "No PuTTY sessions found — unrecognised file format. Expected a PuTTY \
 .reg export (regedit /e \"HKEY_CURRENT_USER\\Software\\SimonTatham\\PuTTY\") or a KiTTY .txt export."
                         .into(),
                 );
-            }
-            let fmt = if t.to_ascii_uppercase().contains("WINDOWS REGISTRY EDITOR") {
-                "PuTTY .reg".into()
-            } else {
-                "KiTTY .txt".into()
-            };
-            (n, HashMap::new(), w, false, 0, fmt)
+        }
+        let fmt = if t.to_ascii_uppercase().contains("WINDOWS REGISTRY EDITOR") {
+            "PuTTY .reg".into()
+        } else {
+            "KiTTY .txt".into()
         };
+        (n, HashMap::new(), w, false, 0, fmt)
+    };
 
     let count = count_connections(&nodes);
     Ok(ImportPreview {
@@ -371,7 +375,8 @@ fn convert_ppk_impl(source: String) -> Result<ConvertedKey, String> {
 
     if !program_on_path("puttygen") {
         return Err(
-            "puttygen is not installed — install putty-tools (puttygen) to convert .ppk keys.".into(),
+            "puttygen is not installed — install putty-tools (puttygen) to convert .ppk keys."
+                .into(),
         );
     }
     let src = PathBuf::from(&source);
@@ -488,8 +493,7 @@ mod tests {
             return;
         };
         let master = std::env::var("WINSSHTERM_MASTER_PASSWORD").ok();
-        let preview =
-            run_import_file(path, master.as_deref()).expect("real backup should import");
+        let preview = run_import_file(path, master.as_deref()).expect("real backup should import");
         assert!(preview.count > 0, "expected at least one session");
         assert!(
             preview.format.contains("backup"),

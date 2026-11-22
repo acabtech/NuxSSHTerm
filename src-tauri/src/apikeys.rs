@@ -41,6 +41,7 @@ pub fn hash_key(key: &str) -> String {
 }
 
 /// True when `candidate` matches the stored hash for `record`.
+#[allow(dead_code)]
 pub fn verify(record: &ApiKeyRecord, candidate: &str) -> bool {
     let stored = record.key_hash.as_bytes();
     let candidate_hash = hash_key(candidate);
@@ -83,8 +84,8 @@ fn hash_record(plaintext: &str, name: &str) -> ApiKeyRecord {
 }
 
 fn base64_url(bytes: &[u8]) -> String {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
