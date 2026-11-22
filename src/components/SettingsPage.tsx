@@ -6,7 +6,19 @@
 import { useEffect, useState } from "react";
 import { accentSoftFromHex, normalizeHexColor } from "../lib/color";
 import type { CursorStyle, TransferSettings, UiSettings } from "../types";
-import { apiKeyCreate, apiKeyRevoke, apiKeysList, type ApiKeyRecord } from "../api";
+import {
+  apiKeyCreate,
+  apiKeyRevoke,
+  apiKeysList,
+  omarchyStatus,
+  omarchySync,
+  vaultAutoUnlockDisable,
+  vaultAutoUnlockEnable,
+  vaultAutoUnlockStatus,
+  type ApiKeyRecord,
+  type AutoUnlockStatus,
+  type OmarchyStatus,
+} from "../api";
 
 type Section = "appearance" | "terminal" | "conn" | "transfer" | "shortcuts";
 
@@ -345,6 +357,8 @@ export function SettingsPage({ ui, onPatch, onPatchTerminal, onPatchTransfer, on
             </div>
           </div>
           <ApiKeysCard />
+          <AutoUnlockCard ui={ui} onPatch={onPatch} />
+          <OmarchyCard ui={ui} onPatch={onPatch} />
           </>
         )}
 
@@ -498,8 +512,183 @@ function ApiKeysCard() {
       )}
       {error && <div className="note" style={{ color: "var(--danger, #ef4444)" }}>{error}</div>}
       <div className="note">
-        Keys are stored as SHA-256 hashes only — the plaintext is shown exactly once. Today they identify a consumer
-        for the headless CLI; revoking a key immediately disables it.
+        Keys are stored as SHA-256 hashes only — the plaintext is shown exactly once. They identify a consumer for
+        the headless CLI and can opt in to vault auto-unlock below; revoking a key immediately disables it and discards
+        any wrapped vault key.
+      </div>
+    </div>
+  );
+}
+
+/** Opt-in API-key vault unlock (issue #22): wrap the derived key, never the password. */
+function AutoUnlockCard({ ui, onPatch }: { ui: UiSettings; onPatch: (patch: Partial<UiSettings>) => void }) {
+  const [status, setStatus] = useState<AutoUnlockStatus | null>(null);
+  const [source, setSource] = useState<UiSettings["vaultAutoUnlockSource"]>(
+    ui.vaultAutoUnlockSource === "none" ? "env" : ui.vaultAutoUnlockSource,
+  );
+  const [envVar, setEnvVar] = useState(ui.vaultAutoUnlockEnvVar);
+  const [filePath, setFilePath] = useState(ui.vaultAutoUnlockFilePath);
+  const [key, setKey] = useState("");
+  const [master, setMaster] = useState("");
+  const [error, setError] = useState("");
+
+  const refresh = () => {
+    vaultAutoUnlockStatus().then(setStatus).catch(() => setStatus(null));
+  };
+  useEffect(refresh, []);
+
+  const enable = async () => {
+    setError("");
+    if (source === "none") {
+      setError("Choose an environment variable or a local key file first.");
+      return;
+    }
+    try {
+      const id = await vaultAutoUnlockEnable(master, key);
+      onPatch({
+        vaultAutoUnlockEnabled: true,
+        vaultAutoUnlockKeyId: id,
+        vaultAutoUnlockSource: source,
+        vaultAutoUnlockEnvVar: envVar.trim(),
+        vaultAutoUnlockFilePath: filePath.trim(),
+      });
+      setKey("");
+      setMaster("");
+      refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const disable = async () => {
+    setError("");
+    try {
+      await vaultAutoUnlockDisable();
+      onPatch({
+        vaultAutoUnlockEnabled: false,
+        vaultAutoUnlockKeyId: "",
+        vaultAutoUnlockSource: "none",
+      });
+      refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  return (
+    <div className="card">
+      <h3>Automatic vault unlock (opt-in)</h3>
+      <div className="note" style={{ color: "var(--danger, #ef4444)" }}>
+        A key that can unlock the vault is a bearer credential: anyone who reads it can read every stored
+        session password. Enable only on a machine you trust, and protect the key file/environment accordingly.
+        The master password itself is never stored.
+      </div>
+      <div className="note">
+        {status?.configured
+          ? `Configured for key ${status.keyId || "(unknown)"}${status.keyRegistered ? "" : " — key revoked, unlock will fail"}.`
+          : "Not configured — the master password prompt is still required."}
+      </div>
+      <label>
+        Supply the API key from
+        <select value={source} onChange={(e) => setSource(e.target.value as UiSettings["vaultAutoUnlockSource"])}>
+          <option value="env">Environment variable</option>
+          <option value="file">Protected local file</option>
+        </select>
+      </label>
+      {source === "env" && (
+        <label>
+          Environment variable name (default NUXSSH_API_KEY)
+          <input
+            value={envVar}
+            onChange={(e) => setEnvVar(e.target.value)}
+            placeholder="NUXSSH_API_KEY"
+            spellCheck={false}
+          />
+        </label>
+      )}
+      {source === "file" && (
+        <label>
+          Key file path (read on each unlock)
+          <input
+            value={filePath}
+            onChange={(e) => setFilePath(e.target.value)}
+            placeholder="~/.config/nuxsshterm/auto-unlock.key"
+            spellCheck={false}
+          />
+        </label>
+      )}
+      <label>
+        Registered API key (plaintext, shown once at creation)
+        <input type="password" value={key} onChange={(e) => setKey(e.target.value)} spellCheck={false} />
+      </label>
+      <label>
+        Vault master password (verifies the existing vault)
+        <input type="password" value={master} onChange={(e) => setMaster(e.target.value)} />
+      </label>
+      <div className="row" style={{ gap: 8 }}>
+        <button className="btn primary" onClick={enable} disabled={!key.trim() || !master.trim()}>
+          Enable auto-unlock
+        </button>
+        {status?.configured && (
+          <button className="btn ghost" onClick={disable}>
+            Disable and forget wrapped key
+          </button>
+        )}
+      </div>
+      {error && <div className="note" style={{ color: "var(--danger, #ef4444)" }}>{error}</div>}
+      <div className="note">
+        Auto-lock still works: inactivity locks the vault normally; the key is only consulted on the next
+        startup/unlock. Revoking the key discards its wrapped copy immediately.
+      </div>
+    </div>
+  );
+}
+
+/** Omarchy "Remote Hosts" publisher (issue #23). */
+function OmarchyCard({ ui, onPatch }: { ui: UiSettings; onPatch: (patch: Partial<UiSettings>) => void }) {
+  const [info, setInfo] = useState<OmarchyStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = () => {
+    omarchyStatus().then(setInfo).catch(() => setInfo(null));
+  };
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const publish = async () => {
+    setBusy(true);
+    try {
+      await omarchySync();
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card">
+      <h3>Omarchy menu integration</h3>
+      <label className="row">
+        <input
+          type="checkbox"
+          checked={ui.omarchyMenuIntegration}
+          onChange={(e) => onPatch({ omarchyMenuIntegration: e.target.checked })}
+        />
+        Publish favorite sessions under Omarchy “Remote Hosts”
+      </label>
+      <div className="note">
+        {info
+          ? `${info.available ? "Omarchy config detected" : "Omarchy not detected — this feature is a no-op here"}. Menu file: ${info.menuPath}. ${info.published} managed favorite row(s).`
+          : "Checking Omarchy menu availability…"}
+      </div>
+      <button className="btn" onClick={publish} disabled={!ui.omarchyMenuIntegration || busy || !info?.available}>
+        {busy ? "Publishing…" : "Publish now"}
+      </button>
+      <div className="note">
+        Only starred connections are published. Selecting a row launches NuxSSHTerm with
+        <span className="mono"> --session &lt;path&gt;</span> and opens that session. The app manages only its
+        marker-delimited block in the menu JSONC; your other menu entries are left untouched.
       </div>
     </div>
   );

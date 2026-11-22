@@ -80,18 +80,19 @@ fn askpass_setup(id: &str, password: &str) -> Result<(PathBuf, PathBuf), String>
         })
         .collect();
     let file = dir.join(format!(".pty-askpass-{safe_id}"));
-    // Issue #39: create the secret file with 0600 from the start (never
-    // briefly umask-wide) and propagate write failures instead of silently
-    // degrading to a terminal password prompt.
     write_secret_file(&file, password)?;
     Ok((helper, file))
 }
 
-/// Create `path` containing `contents`, created from scratch with mode 0600
-/// on Unix (before any secret bytes are written). Errors propagate.
+/// Create `path` containing `contents` with mode 0600 from the instant it is
+/// created (never briefly umask-readable), and propagate write failures.
+/// A stale file from a killed session is removed first so `create_new` cannot
+/// spuriously fail on the next open (issue #39).
 pub(crate) fn write_secret_file(path: &std::path::Path, contents: &str) -> Result<(), String> {
+    use std::io::Write;
+    let _ = std::fs::remove_file(path);
     let mut opts = std::fs::OpenOptions::new();
-    opts.write(true).create_new(true).truncate(true);
+    opts.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
@@ -99,10 +100,9 @@ pub(crate) fn write_secret_file(path: &std::path::Path, contents: &str) -> Resul
     }
     let mut f = opts
         .open(path)
-        .map_err(|e| format!("failed to create askpass file {}: {e}", path.display()))?;
-    use std::io::Write;
+        .map_err(|e| format!("failed to create secret file {}: {e}", path.display()))?;
     f.write_all(contents.as_bytes())
-        .map_err(|e| format!("failed to write askpass file {}: {e}", path.display()))
+        .map_err(|e| format!("failed to write secret file {}: {e}", path.display()))
 }
 
 /// Open a terminal: spawn `ssh` (or a local shell when host is empty) inside a PTY.
@@ -300,4 +300,46 @@ pub fn pty_close(state: State<'_, PtyState>, id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn pty_alive(state: State<'_, PtyState>) -> Vec<String> {
     state.0.lock().unwrap().keys().cloned().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::write_secret_file;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    #[test]
+    fn secret_file_is_0600_and_replaces_stale_files() {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "nx-secret-file-test-{}-{}.tmp",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        write_secret_file(&path, "first").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "first");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+
+        // A leftover file from a killed session must not break the next open.
+        write_secret_file(&path, "second").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+
+        std::fs::remove_file(&path).unwrap();
+    }
 }

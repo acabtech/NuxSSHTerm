@@ -8,6 +8,7 @@ mod kdbx;
 mod local_fs;
 mod log;
 mod model;
+mod omarchy;
 mod pty;
 mod putty;
 mod sftp;
@@ -34,7 +35,11 @@ fn get_ui_settings() -> UiSettings {
 /// Persist the modernized-UI chrome settings.
 #[tauri::command]
 fn set_ui_settings(ui: UiSettings) -> Result<(), String> {
-    store::set_ui_settings(&ui)
+    store::set_ui_settings(&ui)?;
+    // Omarchy favorites are opt-in; switching the setting publishes or removes
+    // the managed rows immediately (issue #23). Non-Omarchy hosts are a no-op.
+    omarchy::sync_for_settings(&ui).inspect_err(|e| log::error("omarchy_sync", e))?;
+    Ok(())
 }
 
 /// Load the last saved workspace snapshot (issue #15), if any.
@@ -53,12 +58,31 @@ fn set_workspace(v: serde_json::Value) -> Result<(), String> {
 fn save_tree(tree: Vec<Node>) -> Result<(), String> {
     store::save_tree(&tree).inspect_err(|e| {
         log::error("save_tree", e);
-    })
+    })?;
+    if store::get_ui_settings().omarchy_menu_integration {
+        omarchy::sync(&tree).inspect_err(|e| log::error("omarchy_sync", e))?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
 fn config_dir() -> String {
     store::config_dir().to_string_lossy().to_string()
+}
+
+#[tauri::command]
+fn omarchy_status() -> omarchy::OmarchyStatus {
+    omarchy::status()
+}
+
+#[tauri::command]
+fn omarchy_sync() -> Result<usize, String> {
+    omarchy::sync(&store::load_tree())
+}
+
+#[tauri::command]
+fn take_pending_session() -> Option<String> {
+    omarchy::take_pending_session()
 }
 
 /// Generate a new API key (issue #25). Returns the plaintext key — shown to
@@ -77,12 +101,17 @@ fn api_key_list() -> Vec<store::ApiKeyRecord> {
     store::api_keys()
 }
 
-/// Revoke an API key by id.
+/// Revoke an API key by id. If it was the auto-unlock key, its wrapped vault
+/// key is discarded too (issue #22).
 #[tauri::command]
 fn api_key_revoke(id: String) -> Result<bool, String> {
-    store::api_key_revoke(&id).inspect(|_| {
+    let removed = store::api_key_revoke(&id).inspect(|_| {
         log::info("api_key_revoke", &format!("revoked API key {id}"));
-    })
+    })?;
+    if removed {
+        vault::on_api_key_revoked(&id);
+    }
+    Ok(removed)
 }
 
 /// Parse a WinSSHTerm `connections.xml` / exported `.settings` file for preview/import.
@@ -120,7 +149,14 @@ pub fn run() {
             cli::print_error(json, &message);
             Some(cli::EXIT_USAGE)
         }
-        cli::ParseResult::Gui => None,
+        cli::ParseResult::Gui { session } => {
+            if let Some(path_key) = session
+                && let Err(e) = omarchy::set_pending_session(&path_key)
+            {
+                eprintln!("warning: cannot queue session launch: {e}");
+            }
+            None
+        }
     };
     if let Some(code) = exit_code {
         std::process::exit(code);
@@ -139,6 +175,9 @@ pub fn run() {
             config_dir,
             get_ui_settings,
             set_ui_settings,
+            omarchy_status,
+            omarchy_sync,
+            take_pending_session,
             get_workspace,
             set_workspace,
             import_connections_file,
@@ -151,6 +190,10 @@ pub fn run() {
             vault::vault_status,
             vault::vault_init,
             vault::vault_unlock,
+            vault::vault_auto_unlock_enable,
+            vault::vault_auto_unlock_disable,
+            vault::vault_auto_unlock_status,
+            vault::vault_unlock_auto,
             vault::vault_lock,
             vault::vault_reset,
             vault::vault_get_passwords,

@@ -169,6 +169,11 @@ fn default_vault_auto_lock_minutes() -> u32 {
     0
 }
 
+/// "none" | "env" | "file" — where the opt-in auto-unlock API key comes from.
+fn default_auto_unlock_source() -> String {
+    "none".to_string()
+}
+
 /// File transfer preferences for the SFTP commander (v0.5.x modernization).
 /// Everything here is non-secret and safe to store in plain `settings.json`.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -239,6 +244,24 @@ pub struct UiSettings {
     /// while unlocked. 0 disables auto-lock.
     #[serde(default = "default_vault_auto_lock_minutes")]
     pub vault_auto_lock_minutes: u32,
+    /// Opt-in: unlock the vault on startup with an API key (issue #22).
+    #[serde(default)]
+    pub vault_auto_unlock_enabled: bool,
+    /// Id of the registered API key whose plaintext wraps the vault key.
+    #[serde(default)]
+    pub vault_auto_unlock_key_id: String,
+    /// Where the API key plaintext is read from: "none" | "env" | "file".
+    #[serde(default = "default_auto_unlock_source")]
+    pub vault_auto_unlock_source: String,
+    /// Environment variable name when `source == "env"` (default NUXSSH_API_KEY).
+    #[serde(default)]
+    pub vault_auto_unlock_env_var: String,
+    /// Local file path when `source == "file"`.
+    #[serde(default)]
+    pub vault_auto_unlock_file_path: String,
+    /// Opt-in: publish favorite sessions to Omarchy's "Remote Hosts" menu (issue #23).
+    #[serde(default)]
+    pub omarchy_menu_integration: bool,
     /// Default for new connections: forward the local ssh-agent to the remote host.
     #[serde(default)]
     pub default_forward_agent: bool,
@@ -280,6 +303,12 @@ impl Default for UiSettings {
             show_config: true,
             accent_color: "#3b82f6".to_string(),
             vault_auto_lock_minutes: default_vault_auto_lock_minutes(),
+            vault_auto_unlock_enabled: false,
+            vault_auto_unlock_key_id: String::new(),
+            vault_auto_unlock_source: default_auto_unlock_source(),
+            vault_auto_unlock_env_var: String::new(),
+            vault_auto_unlock_file_path: String::new(),
+            omarchy_menu_integration: false,
             default_forward_agent: false,
             default_private_key: String::new(),
             terminal: TerminalSettings::default(),
@@ -381,35 +410,44 @@ pub fn save_settings(settings: &Settings) -> Result<(), String> {
     atomic_write(&settings_path(), &bytes)
 }
 
-/// Atomically write `bytes` to `path`: write a sibling temp file, fsync, then
-/// rename over `path` (rename is atomic on the same filesystem). A crash or
-/// power loss mid-write can then never truncate/corrupt the existing file —
-/// at worst a stale temp file is left behind (issue #37; mirrors the helper
-/// in vault.rs).
-fn atomic_write(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+/// Write `bytes` to `path` via a sibling temp file + `rename` (atomic on the
+/// same filesystem). A crash mid-write can then never truncate the existing
+/// file; at worst a stale temp file is left behind (issue #37).
+pub(crate) fn atomic_write(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
     use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SEQ: AtomicU64 = AtomicU64::new(0);
 
     let dir = path
         .parent()
         .filter(|d| !d.as_os_str().is_empty())
         .ok_or_else(|| "store path has no parent directory".to_string())?;
-    let file_name = path
+    let name = path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .ok_or_else(|| "invalid store path".to_string())?;
-    let tmp = dir.join(format!(".{file_name}.{}.tmp", std::process::id()));
+    let tmp = dir.join(format!(
+        ".{name}.{}.{}.tmp",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ));
 
-    let write = || -> Result<(), String> {
-        let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
-        f.write_all(bytes).map_err(|e| e.to_string())?;
-        f.sync_all().map_err(|e| e.to_string())?;
-        Ok(())
-    };
-    if let Err(e) = write() {
+    let result = (|| -> Result<(), String> {
+        let mut f = std::fs::File::create(&tmp)
+            .map_err(|e| format!("failed to create {}: {e}", tmp.display()))?;
+        f.write_all(bytes)
+            .map_err(|e| format!("failed to write {}: {e}", tmp.display()))?;
+        f.sync_all()
+            .map_err(|e| format!("failed to sync {}: {e}", tmp.display()))?;
+        drop(f);
+        std::fs::rename(&tmp, path)
+            .map_err(|e| format!("failed to replace {}: {e}", path.display()))
+    })();
+    if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
-        return Err(e);
     }
-    std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+    result
 }
 
 /// The persisted dedicated-agent record (socket, pid). Empty when unset.
@@ -573,12 +611,11 @@ pub fn load_tree() -> Vec<Node> {
 
 pub fn save_tree(nodes: &[Node]) -> Result<(), String> {
     // Never persist plaintext passwords — strip them before writing to disk.
-    // Written atomically (temp file + rename, issue #37): a crash mid-write
-    // must never truncate connections.xml, since load_tree() silently returns
-    // an empty tree on a parse failure and the next save would make the loss
-    // permanent.
-    atomic_write(&connections_path(), export_xml(nodes).as_bytes())?;
-
+    // The write is atomic: load_tree() silently degrades to an empty tree on a
+    // parse failure, so a torn connections.xml would be overwritten with that
+    // empty tree on the next save and lose every session permanently (#37).
+    let xml = export_xml(nodes);
+    atomic_write(&connections_path(), xml.as_bytes())?;
     // Persist UI-local ForwardAgent/favorite flags in settings.json
     // (not the WinSSHTerm XML).
     let mut s = load_settings();
@@ -610,6 +647,25 @@ pub fn import_connections_xml(xml_text: &str) -> Result<Vec<Node>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn atomic_write_replaces_existing_content() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+
+        let path = std::env::temp_dir().join(format!(
+            "nx-atomic-write-test-{}-{}.tmp",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        atomic_write(&path, b"old").unwrap();
+        atomic_write(&path, b"new").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+
+        std::fs::remove_file(&path).unwrap();
+    }
 
     #[test]
     fn export_xml_never_contains_passwords() {

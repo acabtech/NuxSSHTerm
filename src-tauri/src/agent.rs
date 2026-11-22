@@ -381,7 +381,6 @@ fn askpass_setup(id: &str, passphrase: &str) -> Result<(PathBuf, PathBuf), Strin
         ".agent-askpass-{}",
         id.replace("/", "_").replace("\\", "_")
     ));
-    // Issue #39: 0600 from creation, errors propagated (see pty::write_secret_file).
     crate::pty::write_secret_file(&file, passphrase)?;
     Ok((helper, file))
 }

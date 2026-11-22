@@ -87,6 +87,26 @@ export function pathKey(tree: SessionNode[], path: number[]): string {
   return names.join("/");
 }
 
+/** Find the numeric path of the connection whose stable name path is `key`. */
+export function findPathByKey(tree: SessionNode[], key: string): number[] | null {
+  let found: number[] | null = null;
+  const walk = (nodes: SessionNode[], prefix: number[]) => {
+    if (found) return;
+    for (let i = 0; i < nodes.length; i++) {
+      const n = nodes[i];
+      const path = [...prefix, i];
+      if (pathKey(tree, path) === key && n.type === "Connection") {
+        found = path;
+        return;
+      }
+      walk(n.children, path);
+      if (found) return;
+    }
+  };
+  walk(tree, []);
+  return found;
+}
+
 /**
  * All current vault path keys (one per connection) in the tree. Used to avoid
  * deleting a still-live entry when migrating keys after a rename (issue #32).

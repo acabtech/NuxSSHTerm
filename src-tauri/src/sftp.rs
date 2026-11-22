@@ -335,17 +335,15 @@ fn askpass_setup(id: &str, password: &str) -> Result<(PathBuf, PathBuf), String>
             std::fs::set_permissions(&helper, std::os::unix::fs::PermissionsExt::from_mode(0o700));
     }
     let file = dir.join(format!(".sftp-askpass-{}", sanitize_id(id)));
-    // Issue #39: 0600 from creation, errors propagated (see pty::write_secret_file).
     crate::pty::write_secret_file(&file, password)?;
     Ok((helper, file))
 }
 
-/// Askpass file ids come from user-visible names; keep only characters that
-/// are safe in a filename (mirrors the sanitization pty.rs applies).
+/// Askpass ids come from user-visible names; keep only filename-safe chars.
 fn sanitize_id(id: &str) -> String {
     id.chars()
         .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
                 c
             } else {
                 '_'
