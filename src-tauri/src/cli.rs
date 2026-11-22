@@ -225,8 +225,7 @@ pub fn parse(args: &[String]) -> ParseResult {
             },
         },
         // apikeys create/list/revoke are matched inside the Some(Sub::ApiKeys) arm.
-        Some(Sub::ApiKeys)
-        | Some(Sub::ApiKeysCreate)
+        Some(Sub::ApiKeysCreate)
         | Some(Sub::ApiKeysList)
         | Some(Sub::ApiKeysRevoke) => unreachable!("handled by the ApiKeys arm above"),
     }

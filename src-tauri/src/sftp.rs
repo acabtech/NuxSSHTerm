@@ -373,7 +373,7 @@ pub fn open(
         password.clone().filter(|p| !p.is_empty())
     };
     let has_credential = !effective_spec.private_key.is_empty()
-        || askpass_password.as_deref().map_or(false, |p| !p.is_empty());
+        || askpass_password.as_deref().is_some_and(|p| !p.is_empty());
     let (policy_export_agent, identities_only) = auth.session_policy(has_credential);
     let agent_socket = if policy_export_agent {
         crate::agent::session_socket()

@@ -453,10 +453,10 @@ pub fn set_agent_record(socket: &str, pid: &str) {
     let _ = save_settings(&s);
 }
 
-/// API key management helpers (issue #25).
-///
-/// The stored map is keyed by id; helper functions keep the mutation
-/// + persist logic in one place so both the GUI and the CLI share it.
+// API key management helpers (issue #25).
+//
+// The stored map is keyed by id; helper functions keep the mutation
+// + persist logic in one place so both the GUI and the CLI share it.
 
 /// List all stored API keys, sorted by creation time (then name).
 pub fn api_keys() -> Vec<ApiKeyRecord> {

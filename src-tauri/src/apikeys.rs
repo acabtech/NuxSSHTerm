@@ -40,6 +40,7 @@ pub fn hash_key(key: &str) -> String {
 }
 
 /// True when `candidate` matches the stored hash for `record`.
+#[allow(dead_code)]
 pub fn verify(record: &ApiKeyRecord, candidate: &str) -> bool {
     let stored = record.key_hash.as_bytes();
     let candidate_hash = hash_key(candidate);
