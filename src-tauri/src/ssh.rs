@@ -37,6 +37,108 @@ fn default_port() -> u16 {
     22
 }
 
+/// Bare OpenSSH flags imported sessions may pass through. Anything outside this
+/// list is dropped: `extra_args` comes from imported XML/JSON, so it is untrusted
+/// argv (issue #44).
+const SAFE_BARE_FLAGS: &[&str] = &[
+    "-4", "-6", "-C", "-N", "-T", "-Y", "-q", "-v", "-vv", "-vvv", "-vvvv",
+];
+
+const NUMERIC_OPTIONS: &[&str] = &[
+    "connectionattempts",
+    "connecttimeout",
+    "numberofpasswordprompts",
+    "serveraliveinterval",
+    "serveralivecountmax",
+];
+
+const YES_NO_OPTIONS: &[&str] = &[
+    "batchmode",
+    "compression",
+    "exitonforwardfailure",
+    "tcpkeepalive",
+];
+
+const LOG_LEVELS: &[&str] = &[
+    "quiet", "fatal", "error", "info", "verbose", "debug", "debug1", "debug2", "debug3",
+];
+
+fn is_safe_option(option: &str) -> bool {
+    let Some((key, value)) = option.split_once('=') else {
+        return false;
+    };
+    if key.is_empty()
+        || key
+            .chars()
+            .any(|c| !c.is_ascii_alphanumeric() || c.is_control())
+        || value.is_empty()
+        || value.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return false;
+    }
+    let key = key.to_ascii_lowercase();
+    if NUMERIC_OPTIONS.contains(&key.as_str()) {
+        return value.len() <= 10 && value.bytes().all(|b| b.is_ascii_digit());
+    }
+    if YES_NO_OPTIONS.contains(&key.as_str()) {
+        return value.eq_ignore_ascii_case("yes") || value.eq_ignore_ascii_case("no");
+    }
+    if key == "loglevel" {
+        return LOG_LEVELS.contains(&value.to_ascii_lowercase().as_str());
+    }
+    false
+}
+
+/// Filter imported `extra_args` down to forms that cannot reconfigure OpenSSH
+/// into running local commands (`ProxyCommand`, `LocalCommand`, custom
+/// `ControlPath`, host-key disabling, batch files, etc.).
+fn safe_extra_args(args: &[String]) -> Vec<String> {
+    let mut safe = Vec::new();
+    let mut i = 0;
+    while i < args.len() {
+        let raw = &args[i];
+        if raw.chars().any(char::is_control) {
+            i += 1;
+            continue;
+        }
+        let arg = raw.trim();
+        if arg.is_empty() {
+            i += 1;
+            continue;
+        }
+        if arg == "-o" {
+            // `-o Key=Value` and `-oKey=Value` are both accepted by OpenSSH;
+            // consume the following token either way so an unsafe value can
+            // never be reinterpreted as a bare flag or destination.
+            if let Some(next) = args.get(i + 1) {
+                if !next.chars().any(char::is_control) {
+                    let next = next.trim();
+                    if is_safe_option(next) {
+                        safe.push("-o".into());
+                        safe.push(next.to_string());
+                    }
+                }
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+        if let Some(option) = arg.strip_prefix("-o") {
+            if !option.is_empty() && is_safe_option(option) {
+                safe.push(arg.to_string());
+            }
+            i += 1;
+            continue;
+        }
+        if SAFE_BARE_FLAGS.contains(&arg) {
+            safe.push(arg.to_string());
+        }
+        i += 1;
+    }
+    safe
+}
+
 impl LaunchSpec {
     /// Build the `ssh` argv for this spec (program name excluded).
     pub fn ssh_args(&self) -> Vec<String> {
@@ -68,11 +170,7 @@ impl LaunchSpec {
             args.push("-o".into());
             args.push(format!("ProxyCommand={pc}"));
         }
-        for extra in &self.extra_args {
-            if !extra.trim().is_empty() {
-                args.push(extra.clone());
-            }
-        }
+        args.extend(safe_extra_args(&self.extra_args));
         args.push(self.host.clone());
         args
     }
@@ -127,11 +225,7 @@ impl LaunchSpec {
             args.push("-o".into());
             args.push(format!("ProxyCommand={pc}"));
         }
-        for extra in &self.extra_args {
-            if !extra.trim().is_empty() {
-                args.push(extra.clone());
-            }
-        }
+        args.extend(safe_extra_args(&self.extra_args));
         args.push(self.host.clone());
         args
     }
@@ -290,5 +384,80 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(s.ssh_args(), vec!["-o", "ServerAliveInterval=30", "h"]);
+    }
+
+    #[test]
+    fn dangerous_extra_args_are_dropped() {
+        let s = LaunchSpec {
+            host: "h".into(),
+            extra_args: vec![
+                "-o".into(),
+                "ProxyCommand=/bin/sh -c 'touch /tmp/pwned'".into(),
+                "-oProxyCommand=/bin/sh -c 'touch /tmp/pwned'".into(),
+                "-o".into(),
+                "LocalCommand=id".into(),
+                "-oPermitLocalCommand=yes".into(),
+                "-o".into(),
+                "StrictHostKeyChecking=no".into(),
+                "-b".into(),
+                "junk".into(),
+                "-v".into(),
+            ],
+            ..Default::default()
+        };
+        let expected = vec!["-v", "h"];
+        assert_eq!(s.ssh_args(), expected);
+        assert_eq!(s.sftp_args(), expected);
+    }
+
+    #[test]
+    fn safe_compact_options_and_flags_survive_filtering() {
+        let s = LaunchSpec {
+            host: "h".into(),
+            extra_args: vec![
+                "-oServerAliveCountMax=3".into(),
+                "-o".into(),
+                "LogLevel=DEBUG2".into(),
+                "-oConnectTimeout=not-a-number".into(),
+                "-o".into(),
+                "Compression=maybe".into(),
+                "-C".into(),
+                "-vv".into(),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            s.ssh_args(),
+            vec![
+                "-oServerAliveCountMax=3",
+                "-o",
+                "LogLevel=DEBUG2",
+                "-C",
+                "-vv",
+                "h"
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_and_control_character_extra_args_are_dropped() {
+        let s = LaunchSpec {
+            host: "h".into(),
+            extra_args: vec![
+                "-v\n-oProxyCommand=id".into(),
+                "-o".into(),
+                "ServerAliveInterval=30\nLocalCommand=id".into(),
+                "-o".into(),
+                "-v".into(),
+                "-o".into(),
+                "ServerAliveInterval=30".into(),
+                "-vvv".into(),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            s.ssh_args(),
+            vec!["-o", "ServerAliveInterval=30", "-vvv", "h"]
+        );
     }
 }

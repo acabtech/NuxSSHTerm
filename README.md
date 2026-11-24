@@ -181,6 +181,16 @@ Threat model and limitations:
 - `vault status`/`vault unlock` never print the key or decrypted passwords;
   headless `vault unlock` validates credentials in memory only.
 
+### Webview hardening
+
+The Tauri webview ships with a restrictive Content Security Policy instead of
+`csp: null`. Production permits only bundled `'self'`/`asset:` content, Tauri's
+`ipc:` bridge, and the two hosts used by the optional Google Fonts stylesheet
+(`fonts.googleapis.com` for CSS, `fonts.gstatic.com` for font files); inline
+scripts are never allowed. Development uses a separate policy that also permits
+Vite's localhost HTTP/WebSocket origins (ports 1420/1421). `freezePrototype`
+is enabled as additional defense-in-depth.
+
 ### Omarchy menu integration
 
 **Settings → Connections & Security → Omarchy menu integration** is opt-in and

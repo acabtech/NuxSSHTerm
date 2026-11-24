@@ -557,7 +557,6 @@ pub fn vault_reset(state: State<'_, VaultState>) -> Result<(), String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(format!("failed to delete vault file: {e}")),
     }
-    }
     clear_auto_config();
     disable_auto_unlock_settings()?;
     let mut inner = take_inner(&state);

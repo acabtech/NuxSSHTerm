@@ -26,6 +26,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 use tauri::State;
@@ -80,6 +81,8 @@ pub struct SftpSession {
     /// Unique sentinel printed as a bare line to stdout marking the end of a response.
     marker: String,
     askpass_file: Option<PathBuf>,
+    /// Cleared when a timeout or I/O error leaves the command stream untrustworthy.
+    healthy: AtomicBool,
 }
 
 /// Raw stdout/stderr of one sftp command window. `err` is empty on success.
@@ -94,22 +97,39 @@ fn marker_cmd(marker: &str) -> String {
 }
 
 impl SftpSession {
+    /// Kill the child, purge any late output, and permanently reject further
+    /// commands. Once a command window has been abandoned its marker may arrive
+    /// late, so reusing the stream would desynchronise responses (issue #47).
+    fn fail(&self, message: String) -> String {
+        self.healthy.store(false, Ordering::Release);
+        self.kill();
+        self.out.clear();
+        self.err.clear();
+        message
+    }
+
     fn exec(&self, cmd: &str, timeout: Duration) -> Result<ExecOutput, String> {
         let _guard = self.lock.lock().unwrap();
+        if !self.healthy.load(Ordering::Acquire) {
+            return Err(
+                "sftp session is no longer usable after a timeout or I/O error; reopen it".into(),
+            );
+        }
         let out_start = self.out.len();
         let err_start = self.err.len();
         {
             let mut w = self.stdin.lock().unwrap();
             w.write_all(cmd.as_bytes())
-                .map_err(|e| format!("sftp write failed: {e}"))?;
+                .map_err(|e| self.fail(format!("sftp write failed: {e}")))?;
             w.write_all(b"\n")
-                .map_err(|e| format!("sftp write failed: {e}"))?;
+                .map_err(|e| self.fail(format!("sftp write failed: {e}")))?;
             let mc = marker_cmd(&self.marker);
             w.write_all(mc.as_bytes())
-                .map_err(|e| format!("sftp write failed: {e}"))?;
+                .map_err(|e| self.fail(format!("sftp write failed: {e}")))?;
             w.write_all(b"\n")
-                .map_err(|e| format!("sftp write failed: {e}"))?;
-            w.flush().map_err(|e| format!("sftp flush failed: {e}"))?;
+                .map_err(|e| self.fail(format!("sftp write failed: {e}")))?;
+            w.flush()
+                .map_err(|e| self.fail(format!("sftp flush failed: {e}")))?;
         }
 
         let marker = self.marker.clone();
@@ -131,12 +151,10 @@ impl SftpSession {
                 return Ok(ExecOutput { out, err });
             }
             if Instant::now() >= deadline {
-                self.out.clear();
-                self.err.clear();
-                return Err(format!(
+                return Err(self.fail(format!(
                     "sftp command timed out after {}s: {cmd}",
                     timeout.as_secs()
-                ));
+                )));
             }
             let l = self.out.lines.lock().unwrap();
             let _ = self
@@ -173,9 +191,48 @@ impl Drop for SftpSession {
 pub struct SftpState(pub Mutex<HashMap<String, SftpSession>>);
 
 /// Quote a path for the sftp command lexer (double quotes + backslash escapes;
-/// no shell is involved on the receiving end).
-pub fn quote(path: &str) -> String {
-    format!("\"{}\"", path.replace('\\', "\\\\").replace('"', "\\\""))
+/// no shell is involved on the receiving end). Control characters are rejected:
+/// `exec()` writes one command per line, so a newline in a "quoted" path could
+/// inject another command (issue #45).
+pub fn quote(path: &str) -> Result<String, String> {
+    if path.chars().any(char::is_control) {
+        return Err(format!(
+            "invalid path containing a control character: {path:?}"
+        ));
+    }
+    Ok(format!(
+        "\"{}\"",
+        path.replace('\\', "\\\\").replace('"', "\\\"")
+    ))
+}
+
+/// `chmod` accepts an octal mode token (`755`, `0644`, `4755`, …). Anything
+/// else — especially whitespace — must never reach the command stream (issue #46).
+fn validate_mode(mode: &str) -> Result<&str, String> {
+    if (1..=4).contains(&mode.len()) && mode.bytes().all(|b| (b'0'..=b'7').contains(&b)) {
+        Ok(mode)
+    } else {
+        Err(format!(
+            "invalid chmod mode {mode:?}: expected 1-4 octal digits"
+        ))
+    }
+}
+
+/// Validate the `uid[:gid]` token used by `chown` before interpolation.
+fn validate_uid(uid: &str) -> Result<&str, String> {
+    let all_digits =
+        |s: &str| !s.is_empty() && s.len() <= 10 && s.bytes().all(|b| b.is_ascii_digit());
+    let valid = uid
+        .split_once(':')
+        .is_some_and(|(u, g)| all_digits(u) && all_digits(g))
+        || all_digits(uid);
+    if valid {
+        Ok(uid)
+    } else {
+        Err(format!(
+            "invalid chown uid {uid:?}: expected digits or uid:gid"
+        ))
+    }
 }
 
 /// A parsed `ls -la` line. Columns: `perms nlink owner group size mon day
@@ -295,13 +352,13 @@ fn rm_r(
     warns: &mut Vec<String>,
 ) -> Result<(), String> {
     if !is_dir {
-        let r = sess.exec(&format!("rm {}", quote(path)), Duration::from_secs(20))?;
+        let r = sess.exec(&format!("rm {}", quote(path)?), Duration::from_secs(20))?;
         if !r.err.is_empty() {
             warns.push(format!("{path}: {}", r.err.join("; ")));
         }
         return Ok(());
     }
-    let r = sess.exec(&format!("ls -la {}", quote(path)), Duration::from_secs(20))?;
+    let r = sess.exec(&format!("ls -la {}", quote(path)?), Duration::from_secs(20))?;
     if !r.err.is_empty() {
         warns.push(format!("{path}: {}", r.err.join("; ")));
         return Ok(());
@@ -319,7 +376,7 @@ fn rm_r(
         // k.path is the full path — sftp `ls` prints full paths.
         rm_r(sess, &k.path, k.is_dir, warns)?;
     }
-    let r = sess.exec(&format!("rmdir {}", quote(path)), Duration::from_secs(20))?;
+    let r = sess.exec(&format!("rmdir {}", quote(path)?), Duration::from_secs(20))?;
     if !r.err.is_empty() {
         warns.push(format!("{path}: {}", r.err.join("; ")));
     }
@@ -452,6 +509,7 @@ pub fn open(
         lock: Mutex::new(()),
         marker,
         askpass_file,
+        healthy: AtomicBool::new(true),
     };
 
     let hs = sess.exec("pwd", Duration::from_secs(20));
@@ -512,7 +570,10 @@ pub fn sftp_list(
 ) -> Result<Vec<SftpEntry>, String> {
     let map = state.0.lock().unwrap();
     let sess = map.get(&id).ok_or("unknown sftp session")?;
-    let r = sess.exec(&format!("ls -la {}", quote(&path)), Duration::from_secs(20))?;
+    let r = sess.exec(
+        &format!("ls -la {}", quote(&path)?),
+        Duration::from_secs(20),
+    )?;
     if !r.err.is_empty() {
         return Err(r.err.join(" | "));
     }
@@ -532,15 +593,25 @@ pub fn sftp_op(
     let sess = map.get(&id).ok_or("unknown sftp session")?;
     let timeout = Duration::from_secs(timeout_secs.unwrap_or(20).max(10));
     let cmd = match &op {
-        SftpOp::Mkdir { path } => format!("mkdir {}", quote(path)),
-        SftpOp::Rmdir { path } => format!("rmdir {}", quote(path)),
-        SftpOp::Rm { path } => format!("rm {}", quote(path)),
-        SftpOp::Rename { from, to } => format!("rename {} {}", quote(from), quote(to)),
-        SftpOp::Chmod { mode, path } => format!("chmod {mode} {}", quote(path)),
-        SftpOp::Chown { uid, path } => format!("chown {uid} {}", quote(path)),
-        SftpOp::Symlink { target, link } => format!("symlink {} {}", quote(target), quote(link)),
-        SftpOp::Get { remote, local } => format!("get -r {} {}", quote(remote), quote(local)),
-        SftpOp::Put { local, remote } => format!("put -r {} {}", quote(local), quote(remote)),
+        SftpOp::Mkdir { path } => format!("mkdir {}", quote(path)?),
+        SftpOp::Rmdir { path } => format!("rmdir {}", quote(path)?),
+        SftpOp::Rm { path } => format!("rm {}", quote(path)?),
+        SftpOp::Rename { from, to } => format!("rename {} {}", quote(from)?, quote(to)?),
+        SftpOp::Chmod { mode, path } => {
+            format!("chmod {} {}", validate_mode(mode)?, quote(path)?)
+        }
+        SftpOp::Chown { uid, path } => {
+            format!("chown {} {}", validate_uid(uid)?, quote(path)?)
+        }
+        SftpOp::Symlink { target, link } => {
+            format!("symlink {} {}", quote(target)?, quote(link)?)
+        }
+        SftpOp::Get { remote, local } => {
+            format!("get -r {} {}", quote(remote)?, quote(local)?)
+        }
+        SftpOp::Put { local, remote } => {
+            format!("put -r {} {}", quote(local)?, quote(remote)?)
+        }
         SftpOp::RmR { path, is_dir, .. } => {
             let mut warns = Vec::new();
             rm_r(sess, path, *is_dir, &mut warns)?;
@@ -636,9 +707,70 @@ mod tests {
 
     #[test]
     fn quote_escapes_double_quotes_and_backslashes() {
-        assert_eq!(quote("plain"), "\"plain\"");
-        assert_eq!(quote("a b"), "\"a b\"");
-        assert_eq!(quote("say \"hi\""), "\"say \\\"hi\\\"\"");
+        assert_eq!(quote("plain").unwrap(), "\"plain\"");
+        assert_eq!(quote("a b").unwrap(), "\"a b\"");
+        assert_eq!(quote("say \"hi\"").unwrap(), "\"say \\\"hi\\\"\"");
+    }
+
+    #[test]
+    fn quote_rejects_control_characters() {
+        for path in ["a\nb", "a\rb", "a\0b", "a\u{1b}b"] {
+            assert!(
+                quote(path).is_err(),
+                "accepted control character in {path:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validates_mode_and_uid_before_command_building() {
+        assert_eq!(validate_mode("755").unwrap(), "755");
+        assert_eq!(validate_mode("0644").unwrap(), "0644");
+        assert_eq!(validate_mode("4755").unwrap(), "4755");
+        for mode in ["", "8", "u+x", "755\nchown 0 /tmp", "12345"] {
+            assert!(validate_mode(mode).is_err(), "accepted mode {mode:?}");
+        }
+
+        assert_eq!(validate_uid("0").unwrap(), "0");
+        assert_eq!(validate_uid("1000").unwrap(), "1000");
+        assert_eq!(validate_uid("1000:1000").unwrap(), "1000:1000");
+        for uid in ["", "root", "-1\nrm /tmp", "1000:", ":1000", "99999999999"] {
+            assert!(validate_uid(uid).is_err(), "accepted uid {uid:?}");
+        }
+    }
+
+    #[test]
+    fn timeout_marks_session_unhealthy() {
+        let mut child = Command::new("sleep")
+            .arg("30")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("spawn sleep child");
+        let stdin = child.stdin.take().unwrap();
+        let out = Arc::new(LineBuf::default());
+        let err = Arc::new(LineBuf::default());
+        spawn_reader(child.stdout.take().unwrap(), out.clone());
+        spawn_reader(child.stderr.take().unwrap(), err.clone());
+        let sess = SftpSession {
+            child: Mutex::new(child),
+            stdin: Mutex::new(stdin),
+            out,
+            err,
+            lock: Mutex::new(()),
+            marker: "NXSFTPEND_test".into(),
+            askpass_file: None,
+            healthy: AtomicBool::new(true),
+        };
+
+        let message = sess.fail("timed out".into());
+        assert_eq!(message, "timed out");
+        assert!(!sess.healthy.load(Ordering::Acquire));
+        let err = sess.exec("pwd", Duration::from_millis(10)).unwrap_err();
+        assert!(err.contains("reopen it"), "unexpected error: {err}");
+        let mut child = sess.child.lock().unwrap();
+        let _ = child.wait();
     }
 
     #[test]
