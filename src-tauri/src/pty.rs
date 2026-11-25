@@ -105,6 +105,27 @@ pub(crate) fn write_secret_file(path: &std::path::Path, contents: &str) -> Resul
         .map_err(|e| format!("failed to write secret file {}: {e}", path.display()))
 }
 
+/// RAII guard for a temporary askpass password file: removes the file on drop
+/// unless `release()` transfers ownership into a long-lived session (which
+/// removes it in its own `Drop`). Covers open error paths that return before
+/// the session is constructed (issues #50, #51).
+pub(crate) struct AskPassFile(pub(crate) Option<PathBuf>);
+
+impl Drop for AskPassFile {
+    fn drop(&mut self) {
+        if let Some(f) = &self.0 {
+            let _ = std::fs::remove_file(f);
+        }
+    }
+}
+
+impl AskPassFile {
+    /// Disarm the guard and hand the path to a session.
+    pub(crate) fn release(mut self) -> Option<PathBuf> {
+        self.0.take()
+    }
+}
+
 /// Open a terminal: spawn `ssh` (or a local shell when host is empty) inside a PTY.
 #[tauri::command]
 pub fn pty_open(
@@ -191,7 +212,9 @@ pub fn pty_open(
     // makes saved passwords work for terminal sessions (sftp already does the
     // same in `sftp::open`); without it ssh always prompts on the PTY.
     // Suppressed for `agent_only` (askpass_password stays None above).
-    let mut askpass_file = None;
+    // The guard removes the file if any later step fails before the session
+    // owns it (issue #50).
+    let mut askpass_file = AskPassFile(None);
     if !local_shell && let Some(pw) = askpass_password {
         let (helper, file) = askpass_setup(&id, &pw)?;
         cmd.env("SSH_ASKPASS", &helper);
@@ -199,7 +222,7 @@ pub fn pty_open(
         // Any non-empty DISPLAY satisfies ssh's askpass engagement check.
         cmd.env("DISPLAY", ":0");
         cmd.env("NX_PTY_ASKPASS_FILE", &file);
-        askpass_file = Some(file);
+        askpass_file = AskPassFile(Some(file));
     }
 
     let child = pair.slave.spawn_command(cmd).map_err(|e| {
@@ -219,6 +242,9 @@ pub fn pty_open(
         crate::log::error("pty_open", &msg);
         msg
     })?;
+    // All early-return paths above are past: the session now owns removing the
+    // askpass file on drop.
+    let askpass_file = askpass_file.release();
 
     // Stream PTY output to the frontend.
     let app_for_thread = app.clone();

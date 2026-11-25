@@ -20,6 +20,7 @@
 //!   config dir holds the vault password for the lifetime of the session and a
 //!   tiny helper script cats it when ssh asks (Phase 1 vault dependency).
 
+use crate::pty::AskPassFile;
 use crate::ssh::LaunchSpec;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -468,7 +469,9 @@ pub fn open(
         cmd.env("SSH_AUTH_SOCK", &sock);
     }
 
-    let mut askpass_file = None;
+    // The guard removes the file if spawn/pipe setup fails before the session
+    // owns it (issue #51).
+    let mut askpass_file = AskPassFile(None);
     if let Some(pw) = askpass_password {
         let (helper, file) = askpass_setup(id, &pw)?;
         cmd.env("SSH_ASKPASS", &helper);
@@ -476,7 +479,7 @@ pub fn open(
         // Any non-empty DISPLAY satisfies ssh's askpass engagement check.
         cmd.env("DISPLAY", ":0");
         cmd.env("NX_SFTP_ASKPASS_FILE", &file);
-        askpass_file = Some(file);
+        askpass_file = AskPassFile(Some(file));
     }
 
     let mut child = cmd
@@ -494,6 +497,10 @@ pub fn open(
         .stderr
         .take()
         .ok_or_else(|| "sftp stderr unavailable".to_string())?;
+
+    // All early-return paths above are past: the session now owns removing the
+    // askpass file on drop.
+    let askpass_file = askpass_file.release();
 
     let out = Arc::new(LineBuf::default());
     let err = Arc::new(LineBuf::default());
