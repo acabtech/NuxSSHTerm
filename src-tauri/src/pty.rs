@@ -11,9 +11,15 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::{AppHandle, Emitter, State};
+use std::sync::atomic::{AtomicU64, Ordering};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+static NEXT_SESSION_TOKEN: AtomicU64 = AtomicU64::new(1);
 
 pub struct Sess {
+    /// Distinguishes successive sessions reusing the same tab id, so a stale
+    /// reader cannot remove its replacement (issue #55).
+    token: u64,
     writer: Mutex<Box<dyn Write + Send>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
@@ -23,6 +29,15 @@ pub struct Sess {
 
 impl Drop for Sess {
     fn drop(&mut self) {
+        // Every removal path (explicit close, replacement under the same id,
+        // reader-thread cleanup on child exit) must reap the child and delete
+        // the plaintext askpass file (issues #55, #56).
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.kill();
+            if let Err(e) = child.wait() {
+                crate::log::error("pty_reap", &e.to_string());
+            }
+        }
         if let Some(f) = &self.askpass_file {
             let _ = std::fs::remove_file(f);
         }
@@ -246,9 +261,21 @@ pub fn pty_open(
     // askpass file on drop.
     let askpass_file = askpass_file.release();
 
+    let token = NEXT_SESSION_TOKEN.fetch_add(1, Ordering::Relaxed);
+    let sess = Sess {
+        token,
+        writer: Mutex::new(writer),
+        master: Mutex::new(pair.master),
+        child: Mutex::new(child),
+        askpass_file,
+    };
+    // Insert before starting the reader: a fast child exit must still find the
+    // session so its askpass file is cleaned up (issue #55).
+    state.0.lock().unwrap().insert(id.clone(), sess);
+
     // Stream PTY output to the frontend.
     let app_for_thread = app.clone();
-    let id_for_thread = id.clone();
+    let id_for_thread = id;
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         loop {
@@ -273,17 +300,18 @@ pub fn pty_open(
                 status: "closed".into(),
             },
         );
-    });
 
-    state.0.lock().unwrap().insert(
-        id,
-        Sess {
-            writer: Mutex::new(writer),
-            master: Mutex::new(pair.master),
-            child: Mutex::new(child),
-            askpass_file,
-        },
-    );
+        // The ssh process is gone. Drop the Sess now so its askpass file is
+        // deleted and the child reaped, without waiting for tab unmount (#55).
+        if let Some(state) = app_for_thread.try_state::<PtyState>() {
+            let mut map = state.0.lock().unwrap();
+            // Only remove our own generation: a fast reopen under the same id
+            // must not be torn down by this old reader (#55).
+            if map.get(&id_for_thread).is_some_and(|s| s.token == token) {
+                map.remove(&id_for_thread);
+            }
+        }
+    });
     Ok(())
 }
 
@@ -314,12 +342,8 @@ pub fn pty_resize(
 
 #[tauri::command]
 pub fn pty_close(state: State<'_, PtyState>, id: String) -> Result<(), String> {
-    let mut map = state.0.lock().unwrap();
-    if let Some(sess) = map.remove(&id)
-        && let Ok(mut child) = sess.child.lock()
-    {
-        let _ = child.kill();
-    }
+    // `Sess::drop` kills, reaps, and removes the askpass file (issue #56).
+    let _ = state.0.lock().unwrap().remove(&id);
     Ok(())
 }
 
@@ -330,7 +354,7 @@ pub fn pty_alive(state: State<'_, PtyState>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::write_secret_file;
+    use super::{AskPassFile, write_secret_file};
     use std::sync::atomic::{AtomicU64, Ordering};
 
     #[test]
@@ -367,5 +391,22 @@ mod tests {
         }
 
         std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn askpass_guard_removes_file_on_drop() {
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "nx-askpass-guard-test-{}-{}.tmp",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&path);
+        write_secret_file(&path, "secret").unwrap();
+        {
+            let _guard = AskPassFile(Some(path.clone()));
+            assert!(path.exists());
+        }
+        assert!(!path.exists(), "askpass guard left the file behind");
     }
 }

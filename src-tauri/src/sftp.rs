@@ -93,6 +93,9 @@ pub struct ExecOutput {
     pub err: Vec<String>,
 }
 
+const UNHEALTHY_SESSION: &str =
+    "sftp session is no longer usable after a timeout, close, or I/O error; reopen it";
+
 fn marker_cmd(marker: &str) -> String {
     format!("!printf '{marker}\\n'")
 }
@@ -100,9 +103,8 @@ fn marker_cmd(marker: &str) -> String {
 impl SftpSession {
     /// Kill the child, purge any late output, and permanently reject further
     /// commands. Once a command window has been abandoned its marker may arrive
-    /// late, so reusing the stream would desynchronise responses (issue #47).
+    /// late, so reusing the stream would desynchronise responses (issues #47, #52).
     fn fail(&self, message: String) -> String {
-        self.healthy.store(false, Ordering::Release);
         self.kill();
         self.out.clear();
         self.err.clear();
@@ -112,9 +114,7 @@ impl SftpSession {
     fn exec(&self, cmd: &str, timeout: Duration) -> Result<ExecOutput, String> {
         let _guard = self.lock.lock().unwrap();
         if !self.healthy.load(Ordering::Acquire) {
-            return Err(
-                "sftp session is no longer usable after a timeout or I/O error; reopen it".into(),
-            );
+            return Err(UNHEALTHY_SESSION.into());
         }
         let out_start = self.out.len();
         let err_start = self.err.len();
@@ -136,6 +136,11 @@ impl SftpSession {
         let marker = self.marker.clone();
         let deadline = Instant::now() + timeout;
         loop {
+            // `kill()` wakes this condvar so a concurrent close/error is not
+            // masked by a full command timeout (issue #57).
+            if !self.healthy.load(Ordering::Acquire) {
+                return Err(UNHEALTHY_SESSION.into());
+            }
             let found = {
                 let l = self.out.lines.lock().unwrap();
                 l.iter().position(|x| x == &marker)
@@ -173,15 +178,27 @@ impl SftpSession {
         self.err.clear();
     }
 
+    /// Kill and reap the child, marking the session unusable. Reaping here
+    /// prevents zombies from every close/drop path (issue #56); waking waiters
+    /// lets an in-flight `exec()` fail promptly instead of sleeping out its
+    /// whole timeout (issue #57).
     fn kill(&self) {
+        self.healthy.store(false, Ordering::Release);
         if let Ok(mut c) = self.child.lock() {
             let _ = c.kill();
+            if let Err(e) = c.wait() {
+                crate::log::error("sftp_reap", &e.to_string());
+            }
         }
+        self.out.cv.notify_all();
     }
 }
 
 impl Drop for SftpSession {
     fn drop(&mut self) {
+        // Replacement under the same id and error paths can drop a session
+        // without an explicit close: never leak its authenticated child (#56).
+        self.kill();
         if let Some(f) = &self.askpass_file {
             let _ = std::fs::remove_file(f);
         }
@@ -189,7 +206,7 @@ impl Drop for SftpSession {
 }
 
 #[derive(Default)]
-pub struct SftpState(pub Mutex<HashMap<String, SftpSession>>);
+pub struct SftpState(pub Mutex<HashMap<String, Arc<SftpSession>>>);
 
 /// Quote a path for the sftp command lexer (double quotes + backslash escapes;
 /// no shell is involved on the receiving end). Control characters are rejected:
@@ -208,7 +225,7 @@ pub fn quote(path: &str) -> Result<String, String> {
 }
 
 /// `chmod` accepts an octal mode token (`755`, `0644`, `4755`, …). Anything
-/// else — especially whitespace — must never reach the command stream (issue #46).
+/// else — especially whitespace — must never reach the command stream (issues #46, #49).
 fn validate_mode(mode: &str) -> Result<&str, String> {
     if (1..=4).contains(&mode.len()) && mode.bytes().all(|b| (b'0'..=b'7').contains(&b)) {
         Ok(mode)
@@ -219,7 +236,7 @@ fn validate_mode(mode: &str) -> Result<&str, String> {
     }
 }
 
-/// Validate the `uid[:gid]` token used by `chown` before interpolation.
+/// Validate the `uid[:gid]` token used by `chown` before interpolation (issues #46, #49).
 fn validate_uid(uid: &str) -> Result<&str, String> {
     let all_digits =
         |s: &str| !s.is_empty() && s.len() <= 10 && s.bytes().all(|b| b.is_ascii_digit());
@@ -556,14 +573,18 @@ pub fn sftp_open(
     password: Option<String>,
 ) -> Result<String, String> {
     let (sess, cwd) = open(&id, &spec, password)?;
-    state.0.lock().unwrap().insert(id, sess);
+    // Arc lets commands hold a session without holding the map mutex, so one
+    // slow transfer cannot block every other tab (issue #57).
+    state.0.lock().unwrap().insert(id, Arc::new(sess));
     Ok(cwd)
 }
 
 #[tauri::command]
 pub fn sftp_close(state: State<'_, SftpState>, id: String) -> Result<(), String> {
-    let mut map = state.0.lock().unwrap();
-    if let Some(s) = map.remove(&id) {
+    // Release the map lock before killing/reaping: an in-flight `exec()` may
+    // still hold an Arc, but no other tab is blocked (issues #56, #57).
+    let removed = state.0.lock().unwrap().remove(&id);
+    if let Some(s) = removed {
         s.kill();
     }
     Ok(())
@@ -575,8 +596,15 @@ pub fn sftp_list(
     id: String,
     path: String,
 ) -> Result<Vec<SftpEntry>, String> {
-    let map = state.0.lock().unwrap();
-    let sess = map.get(&id).ok_or("unknown sftp session")?;
+    // Clone the Arc and drop the map lock before the blocking `exec()`
+    // (issue #57).
+    let sess = state
+        .0
+        .lock()
+        .unwrap()
+        .get(&id)
+        .cloned()
+        .ok_or("unknown sftp session")?;
     let r = sess.exec(
         &format!("ls -la {}", quote(&path)?),
         Duration::from_secs(20),
@@ -596,8 +624,15 @@ pub fn sftp_op(
     op: SftpOp,
     timeout_secs: Option<u64>,
 ) -> Result<ExecOutput, String> {
-    let map = state.0.lock().unwrap();
-    let sess = map.get(&id).ok_or("unknown sftp session")?;
+    // Same as `sftp_list`: never hold the global map lock across `exec()`
+    // (issue #57).
+    let sess = state
+        .0
+        .lock()
+        .unwrap()
+        .get(&id)
+        .cloned()
+        .ok_or("unknown sftp session")?;
     let timeout = Duration::from_secs(timeout_secs.unwrap_or(20).max(10));
     let cmd = match &op {
         SftpOp::Mkdir { path } => format!("mkdir {}", quote(path)?),
@@ -621,7 +656,7 @@ pub fn sftp_op(
         }
         SftpOp::RmR { path, is_dir, .. } => {
             let mut warns = Vec::new();
-            rm_r(sess, path, *is_dir, &mut warns)?;
+            rm_r(sess.as_ref(), path, *is_dir, &mut warns)?;
             return if warns.is_empty() {
                 Ok(ExecOutput {
                     out: Vec::new(),
@@ -777,6 +812,10 @@ mod tests {
         let err = sess.exec("pwd", Duration::from_millis(10)).unwrap_err();
         assert!(err.contains("reopen it"), "unexpected error: {err}");
         let mut child = sess.child.lock().unwrap();
+        assert!(
+            child.try_wait().unwrap().is_some(),
+            "failed child was not reaped"
+        );
         let _ = child.wait();
     }
 

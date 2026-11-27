@@ -18,6 +18,7 @@
 //! - `.ppk` keys are converted by the Phase 2 importer; this module deals only
 //!   with OpenSSH key paths via `ssh-add`.
 
+use crate::pty::AskPassFile;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -268,7 +269,9 @@ pub fn agent_add(
         cmd.env("SSH_AUTH_SOCK", &s);
     }
 
-    let mut askpass_file: Option<PathBuf> = None;
+    // RAII cleanup covers the spawn-error path too: `cmd.output()?` used to
+    // return before the manual remove_file, leaking the passphrase (#54).
+    let mut askpass_file = AskPassFile(None);
     if let Some(pw) = passphrase.filter(|p| !p.is_empty()) {
         let (helper, file) = askpass_setup(&key, &pw)?;
         cmd.env("SSH_ASKPASS", &helper);
@@ -276,15 +279,13 @@ pub fn agent_add(
         // Any non-empty DISPLAY satisfies ssh's askpass engagement check.
         cmd.env("DISPLAY", ":0");
         cmd.env("NX_AGENT_ASKPASS_FILE", &file);
-        askpass_file = Some(file);
+        askpass_file = AskPassFile(Some(file));
     }
 
     let out = cmd
         .output()
         .map_err(|e| format!("could not run ssh-add: {e}"))?;
-    if let Some(f) = askpass_file {
-        let _ = std::fs::remove_file(&f);
-    }
+    drop(askpass_file);
 
     let err = String::from_utf8_lossy(&out.stderr).into_owned();
     let err2 = String::from_utf8_lossy(&out.stdout).into_owned();

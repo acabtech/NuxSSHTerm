@@ -363,6 +363,21 @@ pub fn puttygen_available() -> bool {
     program_on_path("puttygen")
 }
 
+/// Create the conversion target with mode 0600 *before* puttygen writes it, so
+/// the key is never briefly readable under the process umask (issue #58).
+#[cfg(unix)]
+fn precreate_secret_file(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)
+        .map(|_| ())
+        .map_err(|e| format!("failed to create converted key {}: {e}", path.display()))
+}
+
 /// Convert a PuTTY `.ppk` private key to OpenSSH `.pem` (original untouched).
 #[tauri::command]
 pub fn convert_ppk(source: String) -> Result<ConvertedKey, String> {
@@ -422,21 +437,36 @@ fn convert_ppk_impl(source: String) -> Result<ConvertedKey, String> {
     cmd.arg("private-openssh");
     cmd.arg("-o");
     cmd.arg(&converted);
-    let out = cmd
-        .output()
-        .map_err(|e| format!("puttygen could not be started: {e}"))?;
+
+    #[cfg(unix)]
+    precreate_secret_file(&out_path)?;
+
+    let out = match cmd.output() {
+        Ok(out) => out,
+        Err(e) => {
+            let _ = std::fs::remove_file(&out_path);
+            return Err(format!("puttygen could not be started: {e}"));
+        }
+    };
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).into_owned();
         let err2 = String::from_utf8_lossy(&out.stdout).into_owned();
+        let _ = std::fs::remove_file(&out_path);
         return Err(format!("puttygen failed: {err}{err2}"));
     }
 
-    // Converted keys are secrets — never leave them world-readable.
+    // Belt-and-braces: keep 0600 even if puttygen replaces the file. If this
+    // fails the secret must not stay on disk with lax permissions (#58).
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&out_path, std::fs::Permissions::from_mode(0o600))
-            .map_err(|e| format!("could not restrict permissions on converted key: {e}"))?;
+        if let Err(e) = std::fs::set_permissions(&out_path, std::fs::Permissions::from_mode(0o600))
+        {
+            let _ = std::fs::remove_file(&out_path);
+            return Err(format!(
+                "could not restrict permissions on converted key: {e}"
+            ));
+        }
     }
 
     Ok(ConvertedKey {
@@ -538,5 +568,26 @@ mod tests {
         let mut n2 = Node::connection("linux host", "10.0.0.10", "sam", 22);
         n2.private_key = "/home/user/.ssh/id_ed25519".into();
         assert!(xml_warnings(&[n2]).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn converted_key_target_is_precreated_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "nx-converted-key-test-{}-{}.pem",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        precreate_secret_file(&path).unwrap();
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        std::fs::remove_file(&path).unwrap();
     }
 }
